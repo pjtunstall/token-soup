@@ -36,12 +36,10 @@ var upgrader = websocket.Upgrader{
 // Client is a middleman between the websocket connection and the hub.
 type Client struct {
 	hub *Hub
-
-	// The websocket connection.
 	conn *websocket.Conn
 
 	// Buffered channel of outbound messages.
-	send chan []byte
+	send chan []byte // Buffer: 256.
 }
 
 // readPump pumps messages from the websocket connection to the hub.
@@ -55,17 +53,27 @@ func (c *Client) readPump() {
 		c.conn.Close()
 	}()
 	c.conn.SetReadLimit(maxMessageSize)
-	c.conn.SetReadDeadline(time.Now().Add(pongWait))
-	c.conn.SetPongHandler(func(string) error { c.conn.SetReadDeadline(time.Now().Add(pongWait)); return nil })
+
+	// We should have a pong to read before the next pongwait has expired, given
+	// that we went pings at regular intervals in writePump: `c.conn.WriteMessage(websocket.PingMessage, nil)`.
+	c.conn.SetReadDeadline(time.Now().Add(pongWait)) // What is this doing?
+
+	pongHandler := func(string) error { c.conn.SetReadDeadline(time.Now().Add(pongWait)); return nil }
+	c.conn.SetPongHandler(pongHandler)
+	
 	for {
 		_, message, err := c.conn.ReadMessage()
 		if err != nil {
+			// This function is variadic. We pass the errors we don't want to log. (CloseAbnormalClosure names a WebSocket close code, not
+			// “unexpected” in this API’s sense. Putting it in the list means
+			// "don’t log when the peer disappears uncleanly"--common for tabs
+			// closed, network drops, etc.)
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
 				log.Printf("error: %v", err)
 			}
 			break
 		}
-		message = bytes.TrimSpace(bytes.Replace(message, newline, space, -1))
+		message = bytes.TrimSpace(bytes.ReplaceAll(message, newline, space))
 		c.hub.broadcast <- message
 	}
 }
@@ -76,8 +84,12 @@ func (c *Client) readPump() {
 // application ensures that there is at most one writer to a connection by
 // executing all writes from this goroutine.
 func (c *Client) writePump() {
+	// ticker has a channel, ticker.C, with a 1-element time buffer. (According
+	// to the docs, if the client falls behind while reading, the ticker drops
+	// ticks on the floor until the client catches up.)
 	ticker := time.NewTicker(pingPeriod)
 	defer func() {
+		// Unnecessary as of Go 1.23, but still good to clean up here so it's not needlessly firing.
 		ticker.Stop()
 		c.conn.Close()
 	}()
@@ -99,7 +111,7 @@ func (c *Client) writePump() {
 
 			// Add queued chat messages to the current websocket message.
 			n := len(c.send)
-			for i := 0; i < n; i++ {
+			for range n {
 				w.Write(newline)
 				w.Write(<-c.send)
 			}
@@ -107,7 +119,11 @@ func (c *Client) writePump() {
 			if err := w.Close(); err != nil {
 				return
 			}
+			// 
 		case <-ticker.C:
+			// Every tick, try to send a ping on the socket. If it doesn't
+			// succeed within the writeWait period, return from this function,
+			// triggering defer to close the connection.
 			c.conn.SetWriteDeadline(time.Now().Add(writeWait))
 			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				return
@@ -126,8 +142,8 @@ func ServeWs(hub *Hub, w http.ResponseWriter, r *http.Request) {
 	client := &Client{hub: hub, conn: conn, send: make(chan []byte, 256)}
 	client.hub.register <- client
 
-	// Allow collection of memory referenced by the caller by doing all work in
-	// new goroutines.
+	// "Allow collection of memory referenced by the caller by doing all work in
+	// new goroutines." I.e. this lets the handler return and saves us from keeping the request/handler frame and related temporaries alive for the whole WebSocket lifetime.
 	go client.writePump()
 	go client.readPump()
 }
