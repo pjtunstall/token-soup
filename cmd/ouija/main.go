@@ -4,32 +4,16 @@ import (
 	"flag"
 	"log"
 	"net/http"
-	"os"
 	"ouija/internal/chat"
-	"path/filepath"
+	"ouija/internal/static"
 )
 
 var addr = flag.String("addr", ":8080", "http service address")
 
-// homeHTMLPath resolves home.html relative to the process working directory.
-// go run ./cmd/ouija is usually started from the repo root; a binary may be
-// run from cmd/ouija instead — try common layouts before ServeFile.
-func homeHTMLPath() string {
-	for _, p := range []string{
-		"home.html",
-		filepath.Join("..", "home.html"),
-		filepath.Join("..", "..", "home.html"),
-	} {
-		if fi, err := os.Stat(p); err == nil && !fi.IsDir() {
-			return p
-		}
-	}
-	return "home.html"
-}
-
 func serveHome(w http.ResponseWriter, r *http.Request) {
 	log.Println(r.URL)
-	http.ServeFile(w, r, homeHTMLPath())
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = w.Write(static.HomeHTML)
 }
 
 func main() {
