@@ -63,31 +63,31 @@ var openRouterHTTPClient = &http.Client{
 	Timeout: 20 * time.Second,
 }
 
-// AiClient runs OpenRouter requests in a single goroutine. It receives user
-// messages from the hub on jobs and posts assistant replies back on broadcast.
-// Serializing work on this goroutine keeps a future message history and related
-// state easy to reason about under concurrent hub traffic.
+// AiClient receives user messages from the hub and runs each OpenRouter
+// request in its own goroutine so multiple clients can be in flight at once.
+// Assistant replies are sent on reply for the hub to deliver to the right
+// connection.
 type AiClient struct {
-	jobs      <-chan []byte
-	broadcast chan<- []byte
+	jobs  <-chan aiJob
+	reply chan<- aiReply
 }
 
-// NewAiClient wires an AiClient to the hub's AI job queue and broadcast channel.
+// NewAiClient wires an AiClient to the hub's AI job queue and reply channel.
 func NewAiClient(h *Hub) *AiClient {
 	return &AiClient{
-		jobs:      h.aiForward,
-		broadcast: h.broadcast,
+		jobs:  h.aiJobs,
+		reply: h.replies,
 	}
 }
 
-// Run blocks until jobs is closed, processing each message sequentially.
+// Run blocks until jobs is closed. Each job is processed concurrently.
 func (a *AiClient) Run() {
-	for msg := range a.jobs {
-		a.forward(msg)
+	for job := range a.jobs {
+		go a.forward(job)
 	}
 }
 
-func shouldForwardMessage(message []byte) bool {
+func shouldForwardToAI(message []byte) bool {
 	prefix := []byte(openRouterName + ": ")
 	return !bytes.HasPrefix(message, prefix)
 }
@@ -125,14 +125,14 @@ func extractAssistantContent(payload openRouterResponse) string {
 	return ""
 }
 
-func (a *AiClient) forward(message []byte) {
+func (a *AiClient) forward(job aiJob) {
 	apiKey := os.Getenv("OPENROUTER_API_KEY")
 	if apiKey == "" {
 		log.Println("OPENROUTER_API_KEY is not set; skipping OpenRouter call")
 		return
 	}
 
-	userPrompt := extractPrompt(message)
+	userPrompt := extractPrompt(job.body)
 	if strings.TrimSpace(userPrompt) == "" {
 		return
 	}
@@ -157,9 +157,9 @@ func (a *AiClient) forward(message []byte) {
 	if err != nil {
 		log.Printf("OpenRouter request failed: %v", err)
 		if isOpenRouterTimeout(err) {
-			a.broadcast <- []byte(openRouterName + ": " + openRouterBusyUserMsg)
+			a.reply <- aiReply{client: job.client, body: []byte(openRouterName + ": " + openRouterBusyUserMsg)}
 		} else {
-			a.broadcast <- []byte(openRouterName + ": [request failed]")
+			a.reply <- aiReply{client: job.client, body: []byte(openRouterName + ": [request failed]")}
 		}
 		return
 	}
@@ -169,9 +169,9 @@ func (a *AiClient) forward(message []byte) {
 	if err != nil {
 		log.Printf("failed to read OpenRouter response body: %v", err)
 		if isOpenRouterTimeout(err) {
-			a.broadcast <- []byte(openRouterName + ": " + openRouterBusyUserMsg)
+			a.reply <- aiReply{client: job.client, body: []byte(openRouterName + ": " + openRouterBusyUserMsg)}
 		} else {
-			a.broadcast <- []byte(openRouterName + ": [invalid response]")
+			a.reply <- aiReply{client: job.client, body: []byte(openRouterName + ": [invalid response]")}
 		}
 		return
 	}
@@ -181,28 +181,28 @@ func (a *AiClient) forward(message []byte) {
 	var payload openRouterResponse
 	if err := json.Unmarshal(bodyBytes, &payload); err != nil {
 		log.Printf("failed to decode OpenRouter response: %v", err)
-		a.broadcast <- []byte(openRouterName + ": [invalid response]")
+		a.reply <- aiReply{client: job.client, body: []byte(openRouterName + ": [invalid response]")}
 		return
 	}
 
 	if resp.StatusCode >= 400 {
 		if payload.Error.Message != "" {
 			log.Printf("OpenRouter API error (%d): %s", resp.StatusCode, payload.Error.Message)
-			a.broadcast <- []byte(openRouterName + ": [api error: " + payload.Error.Message + "]")
+			a.reply <- aiReply{client: job.client, body: []byte(openRouterName + ": [api error: " + payload.Error.Message + "]")}
 			return
 		}
 		log.Printf("OpenRouter API error (%d)", resp.StatusCode)
-		a.broadcast <- []byte(openRouterName + ": [api error]")
+		a.reply <- aiReply{client: job.client, body: []byte(openRouterName + ": [api error]")}
 		return
 	}
 
 	content := extractAssistantContent(payload)
 	if strings.TrimSpace(content) == "" {
 		log.Println("OpenRouter returned no assistant text")
-		a.broadcast <- []byte(openRouterName + ": [empty response]")
+		a.reply <- aiReply{client: job.client, body: []byte(openRouterName + ": [empty response]")}
 		return
 	}
 
 	reply := []byte(openRouterName + ": " + strings.TrimSpace(content))
-	a.broadcast <- reply
+	a.reply <- aiReply{client: job.client, body: reply}
 }

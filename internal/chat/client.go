@@ -76,7 +76,7 @@ func (c *Client) readPump() {
 		message = bytes.TrimSpace(bytes.ReplaceAll(message, newline, space))
 		prefix := []byte(c.conn.RemoteAddr().String() + ": ")
 		message = append(prefix, message...)
-		c.hub.broadcast <- message
+		c.hub.inbound <- userInbound{client: c, body: message}
 	}
 }
 
