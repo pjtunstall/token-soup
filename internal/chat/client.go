@@ -91,7 +91,8 @@ func (c *Client) writePump() {
 	// ticks on the floor until the client catches up.)
 	ticker := time.NewTicker(pingPeriod)
 	defer func() {
-		// Unnecessary as of Go 1.23, but still good to clean up here so it's not needlessly firing.
+		// As of Go 1.23, the ticker doesn't need to be explicitly stopped for
+		// it to be garbage collected, but still good to clean up here so it's not needlessly firing.
 		ticker.Stop()
 		c.conn.Close()
 	}()
