@@ -11,8 +11,7 @@ type Hub struct {
 	// channel it's still destined for all users; when it's on a client.send
 	// channel, it's then being sent to an individual rather than being
 	// broadcast, although it is being broadcast, when you consider that it's
-	// also being sent on the other client.send channels. Bah. What would be a
-	// better name for it? hub.message, to contrast with hub.register and hub.unregister?
+	// also being sent on the other client.send channels.
 	broadcast chan []byte
 
 	register chan *Client
