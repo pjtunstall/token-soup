@@ -55,8 +55,8 @@ func (c *Client) readPump() {
 	c.conn.SetReadLimit(maxMessageSize)
 
 	// We should have a pong to read before the next pongwait has expired, given
-	// that we went pings at regular intervals in writePump: `c.conn.WriteMessage(websocket.PingMessage, nil)`.
-	c.conn.SetReadDeadline(time.Now().Add(pongWait)) // What is this doing?
+	// that we want pings at regular intervals in writePump: `c.conn.WriteMessage(websocket.PingMessage, nil)`.
+	c.conn.SetReadDeadline(time.Now().Add(pongWait))
 
 	pongHandler := func(string) error { c.conn.SetReadDeadline(time.Now().Add(pongWait)); return nil }
 	c.conn.SetPongHandler(pongHandler)
@@ -109,7 +109,7 @@ func (c *Client) writePump() {
 			}
 			w.Write(message)
 
-			// Add queued chat messages to the current websocket message.
+			// Add queued chat messages to the current WebSocket message.
 			n := len(c.send)
 			for range n {
 				w.Write(newline)
