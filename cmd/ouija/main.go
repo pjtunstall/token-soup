@@ -18,7 +18,9 @@ func main() {
 
 	flag.Parse()
 	hub := chat.NewHub()
+	ai := chat.NewAiClient(hub)
 	go hub.Run()
+	go ai.Run()
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /ws", func(w http.ResponseWriter, r *http.Request) {

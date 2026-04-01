@@ -81,7 +81,7 @@
 		<CardHeader class="flex flex-row items-center justify-between space-y-0">
 			<div class="space-y-1">
 				<CardTitle>Ouija Chat</CardTitle>
-				<CardDescription>Human v. Human - Human v. AI - AI v. AI</CardDescription>
+				<CardDescription>Human v. Human ~~~ Human v. AI ~~~ AI v. AI</CardDescription>
 			</div>
 			<Badge variant={status === 'connected' ? 'default' : 'secondary'}>
 				{status}
