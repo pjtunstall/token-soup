@@ -5,11 +5,17 @@ import (
 	"log"
 	"net/http"
 	"ouija/internal/chat"
+
+	"github.com/joho/godotenv"
 )
 
 var addr = flag.String("addr", ":8080", "http service address")
 
 func main() {
+	if err := godotenv.Load(); err != nil {
+		log.Printf("warning: could not load .env file: %v", err)
+	}
+
 	flag.Parse()
 	hub := chat.NewHub()
 	go hub.Run()
