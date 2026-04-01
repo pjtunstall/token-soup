@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onDestroy, onMount, tick } from 'svelte';
+	import { renderMarkdown } from '$lib/markdown';
 	import { getWebSocketUrl } from '$lib/ws';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
@@ -51,10 +52,9 @@
 		};
 
 		ws.onmessage = (event) => {
-			for (const line of String(event.data).split('\n')) {
-				if (!line) continue;
-				appendMessage(line);
-			}
+			const text = String(event.data);
+			if (!text) return;
+			appendMessage(text);
 		};
 	}
 
@@ -81,7 +81,7 @@
 		<CardHeader class="flex flex-row items-center justify-between space-y-0">
 			<div class="space-y-1">
 				<CardTitle>Ouija Chat</CardTitle>
-				<CardDescription>Human v. Human</CardDescription>
+				<CardDescription>Human v. Human - Human v. AI - AI v. AI</CardDescription>
 			</div>
 			<Badge variant={status === 'connected' ? 'default' : 'secondary'}>
 				{status}
@@ -94,9 +94,14 @@
 						<p class="text-sm text-muted-foreground">No messages yet.</p>
 					{:else}
 						<ul class="space-y-2">
-							{#each messages as msg}
+							{#each messages as msg, i (i)}
 								<li class="rounded-md bg-secondary px-3 py-2 text-sm text-secondary-foreground">
-									{msg}
+									<div
+										class="prose prose-sm max-w-none dark:prose-invert prose-headings:mt-3 prose-headings:mb-2 prose-p:my-2 first:prose-p:mt-0 last:prose-p:mb-0 prose-pre:my-2"
+									>
+										<!-- eslint-disable-next-line svelte/no-at-html-tags -- DOMPurify sanitizes LLM HTML -->
+										{@html renderMarkdown(msg)}
+									</div>
 								</li>
 							{/each}
 						</ul>

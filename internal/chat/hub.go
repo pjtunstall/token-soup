@@ -2,8 +2,12 @@ package chat
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -14,7 +18,20 @@ const (
 	openRouterURL   = "https://openrouter.ai/api/v1/chat/completions"
 	openRouterModel = "openrouter/free"
 	openRouterName  = "openrouter"
+
+	openRouterBusyUserMsg = "OpenRouter seems to be busy right now; please try again later."
 )
+
+func isOpenRouterTimeout(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var ne net.Error
+	return errors.As(err, &ne) && ne.Timeout()
+}
 
 type openRouterMessage struct {
 	Role    string `json:"role"`
@@ -151,14 +168,30 @@ func (h *Hub) forwardToOpenRouter(message []byte) {
 	resp, err := openRouterHTTPClient.Do(req)
 	if err != nil {
 		log.Printf("OpenRouter request failed: %v", err)
-		h.broadcast <- []byte(openRouterName + ": [request failed]")
+		if isOpenRouterTimeout(err) {
+			h.broadcast <- []byte(openRouterName + ": " + openRouterBusyUserMsg)
+		} else {
+			h.broadcast <- []byte(openRouterName + ": [request failed]")
+		}
 		return
 	}
 	defer resp.Body.Close()
 
-	var payload openRouterResponse
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Printf("failed to read OpenRouter response body: %v", err)
+		if isOpenRouterTimeout(err) {
+			h.broadcast <- []byte(openRouterName + ": " + openRouterBusyUserMsg)
+		} else {
+			h.broadcast <- []byte(openRouterName + ": [invalid response]")
+		}
+		return
+	}
 
-	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+	log.Printf("OpenRouter response JSON: %s", bodyBytes)
+
+	var payload openRouterResponse
+	if err := json.Unmarshal(bodyBytes, &payload); err != nil {
 		log.Printf("failed to decode OpenRouter response: %v", err)
 		h.broadcast <- []byte(openRouterName + ": [invalid response]")
 		return
