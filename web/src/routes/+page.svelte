@@ -19,10 +19,22 @@
 	let messages = $state<string[]>([]);
 	let status = $state<'connecting' | 'connected' | 'closed' | 'error'>('connecting');
 	let logContainer: HTMLDivElement | null = null;
+	let aiBubbleIndexByJobId: Record<string, number> = {};
+	let scrollRaf: number | null = null;
 
-	function appendMessage(text: string) {
+	function scheduleScroll() {
+		if (scrollRaf !== null) return;
+		scrollRaf = requestAnimationFrame(() => {
+			scrollRaf = null;
+			void scrollToBottom();
+		});
+	}
+
+	function pushMessage(text: string) {
+		const idx = messages.length;
 		messages = [...messages, text];
-		void scrollToBottom();
+		scheduleScroll();
+		return idx;
 	}
 
 	async function scrollToBottom() {
@@ -38,24 +50,104 @@
 
 		ws.onopen = () => {
 			status = 'connected';
-			appendMessage('Connected.');
+			pushMessage('Connected.');
 		};
 
 		ws.onclose = () => {
 			status = 'closed';
-			appendMessage('Connection closed.');
+			pushMessage('Connection closed.');
 		};
 
 		ws.onerror = () => {
 			status = 'error';
-			appendMessage('Connection error.');
+			pushMessage('Connection error.');
 		};
 
 		ws.onmessage = (event) => {
-			const text = String(event.data);
-			if (!text) return;
-			appendMessage(text);
+			const raw = String(event.data);
+			if (!raw) return;
+
+			// Backend batches websocket writes with '\n' separators.
+			for (const part of raw.split('\n')) {
+				const text = part.trimEnd();
+				if (!text) continue;
+				handleIncomingText(text);
+			}
 		};
+	}
+
+	function handleIncomingText(text: string) {
+		let parsed: any;
+		try {
+			parsed = JSON.parse(text);
+		} catch {
+			pushMessage(text);
+			return;
+		}
+
+		if (!parsed || typeof parsed !== 'object' || typeof parsed.type !== 'string') {
+			pushMessage(text);
+			return;
+		}
+
+		const jobId = parsed.jobId !== undefined ? String(parsed.jobId) : '';
+		switch (parsed.type) {
+			case 'ai_start': {
+				const idx = pushMessage(parsed.text ?? 'openrouter: ');
+				if (jobId) aiBubbleIndexByJobId[jobId] = idx;
+				return;
+			}
+			case 'ai_delta': {
+				if (!jobId) {
+					pushMessage(parsed.text ?? '');
+					return;
+				}
+				const idx = aiBubbleIndexByJobId[jobId];
+				const deltaText = parsed.text ?? '';
+				if (idx === undefined) {
+					const newIdx = pushMessage(deltaText);
+					aiBubbleIndexByJobId[jobId] = newIdx;
+					return;
+				}
+				const current = messages[idx] ?? '';
+				messages = [
+					...messages.slice(0, idx),
+					current + deltaText,
+					...messages.slice(idx + 1)
+				];
+				scheduleScroll();
+				return;
+			}
+			case 'ai_replace': {
+				if (!jobId) {
+					pushMessage(parsed.text ?? '');
+					return;
+				}
+				const idx = aiBubbleIndexByJobId[jobId];
+				const replacement = parsed.text ?? '';
+				if (idx === undefined) {
+					const newIdx = pushMessage(replacement);
+					aiBubbleIndexByJobId[jobId] = newIdx;
+					return;
+				}
+				messages = [
+					...messages.slice(0, idx),
+					replacement,
+					...messages.slice(idx + 1)
+				];
+				scheduleScroll();
+				return;
+			}
+			case 'ai_end': {
+				if (jobId) delete aiBubbleIndexByJobId[jobId];
+				return;
+			}
+			default: {
+				// Unknown structured message: show as raw.
+				pushMessage(text);
+				return;
+			}
+		}
 	}
 
 	function sendMessage() {

@@ -16,6 +16,7 @@ type aiReply struct {
 
 // aiJob is one user message queued for OpenRouter (handled concurrently).
 type aiJob struct {
+	id     uint64
 	client *Client
 	body   []byte
 }
@@ -34,6 +35,8 @@ type Hub struct {
 
 	register   chan *Client
 	unregister chan *Client
+
+	nextJobID uint64
 }
 
 func NewHub() *Hub {
@@ -44,6 +47,7 @@ func NewHub() *Hub {
 		register:   make(chan *Client),
 		unregister: make(chan *Client),
 		clients:    make(map[*Client]struct{}),
+		nextJobID:  0,
 	}
 }
 
@@ -65,8 +69,10 @@ func (h *Hub) Run() {
 				delete(h.clients, u.client)
 			}
 			if shouldForwardToAI(u.body) {
+				id := h.nextJobID
+				h.nextJobID++
 				select {
-				case h.aiJobs <- aiJob{client: u.client, body: u.body}:
+				case h.aiJobs <- aiJob{id: id, client: u.client, body: u.body}:
 				default:
 					log.Println("OpenRouter job queue full; dropping forward")
 				}
