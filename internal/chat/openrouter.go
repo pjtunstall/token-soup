@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net"
@@ -45,6 +46,7 @@ type openRouterRequest struct {
 	Model    string              `json:"model"`
 	Messages []openRouterMessage `json:"messages"`
 	Stream   bool                `json:"stream,omitempty"`
+	Temperature float32				 `json:"temperature,omitempty"`
 }
 
 type openRouterChoice struct {
@@ -64,8 +66,10 @@ type openRouterResponse struct {
 }
 
 type openRouterStreamDelta struct {
-	Role    string `json:"role,omitempty"`
-	Content string `json:"content,omitempty"`
+	Role             string `json:"role,omitempty"`
+	Content          string `json:"content,omitempty"`
+	Reasoning        string `json:"reasoning,omitempty"`
+	ReasoningContent string `json:"reasoning_content,omitempty"`
 }
 
 type openRouterStreamChoice struct {
@@ -75,6 +79,17 @@ type openRouterStreamChoice struct {
 type openRouterStreamResponse struct {
 	Choices []openRouterStreamChoice `json:"choices"`
 	Error   openRouterError          `json:"error"`
+	Usage   openRouterUsage          `json:"usage"`
+}
+
+type openRouterUsage struct {
+	PromptTokens     int `json:"prompt_tokens,omitempty"`
+	CompletionTokens int `json:"completion_tokens,omitempty"`
+	TotalTokens      int `json:"total_tokens,omitempty"`
+}
+
+func (u openRouterUsage) hasAny() bool {
+	return u.PromptTokens > 0 || u.CompletionTokens > 0 || u.TotalTokens > 0
 }
 
 type wsAIEvent struct {
@@ -88,6 +103,11 @@ var openRouterHTTPClient = &http.Client{
 	Timeout: 90 * time.Second,
 }
 
+func openRouterLogDeltaStreamEnabled() bool {
+	v := strings.TrimSpace(os.Getenv("OPENROUTER_LOG_DELTA_STREAM"))
+	return v == "1" || strings.EqualFold(v, "true") || strings.EqualFold(v, "yes")
+}
+
 // AiClient receives user messages from the hub and runs each OpenRouter
 // request in its own goroutine so multiple clients can be in flight at once.
 // Assistant replies are sent on reply for the hub to deliver to the right
@@ -95,6 +115,7 @@ var openRouterHTTPClient = &http.Client{
 type AiClient struct {
 	jobs  <-chan aiJob
 	reply chan<- aiReply
+	done  chan<- aiResult
 }
 
 // NewAiClient wires an AiClient to the hub's AI job queue and reply channel.
@@ -102,6 +123,7 @@ func NewAiClient(h *Hub) *AiClient {
 	return &AiClient{
 		jobs:  h.aiJobs,
 		reply: h.replies,
+		done:  h.results,
 	}
 }
 
@@ -125,6 +147,7 @@ func newOpenRouterRequest(userPrompt string) openRouterRequest {
 			{Role: "user", Content: userPrompt},
 		},
 		Stream: true,
+		Temperature: 0.7,
 	}
 }
 
@@ -155,7 +178,7 @@ func sendAIEvent(a *AiClient, job aiJob, event wsAIEvent) {
 		log.Printf("failed to marshal ws AI event: %v", err)
 		return
 	}
-	a.reply <- aiReply{client: job.client, body: evtBytes}
+	a.reply <- aiReply{client: job.client, jobID: job.id, body: evtBytes}
 }
 
 func parseSSEStream(resp *http.Response, onData func(data []byte) error) error {
@@ -192,8 +215,8 @@ func parseSSEStream(resp *http.Response, onData func(data []byte) error) error {
 			continue
 		}
 
-		if strings.HasPrefix(line, "data:") {
-			val := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if rest, ok := strings.CutPrefix(line, "data:"); ok {
+			val := strings.TrimSpace(rest)
 			dataLines = append(dataLines, val)
 		}
 
@@ -209,16 +232,34 @@ func parseSSEStream(resp *http.Response, onData func(data []byte) error) error {
 }
 
 func (a *AiClient) forward(job aiJob) {
+	// Always report completion so the hub can unblock input.
+	var assistantText string
+	cancelled := false
+	defer func() {
+		a.done <- aiResult{
+			client:        job.client,
+			jobID:         job.id,
+			assistantText: assistantText,
+			cancelled:     cancelled,
+		}
+	}()
+
 	apiKey := os.Getenv("OPENROUTER_API_KEY")
 	if apiKey == "" {
 		log.Println("OPENROUTER_API_KEY is not set; skipping OpenRouter call")
 		return
 	}
 
-	userPrompt := extractPrompt(job.body)
+	// job.body is already the full prompt text we want to send.
+	// (We only use extractPrompt for raw inbound websocket messages that include
+	// an "ip:port: " prefix.)
+	userPrompt := string(job.body)
 	if strings.TrimSpace(userPrompt) == "" {
 		return
 	}
+
+	started := time.Now()
+	log.Printf("openrouter: job=%d prompt_bytes=%d", job.id, len(userPrompt))
 
 	requestBody := newOpenRouterRequest(userPrompt)
 
@@ -228,7 +269,11 @@ func (a *AiClient) forward(job aiJob) {
 		return
 	}
 
-	req, err := http.NewRequest(http.MethodPost, openRouterURL, bytes.NewReader(jsonBody))
+	ctx := job.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, openRouterURL, bytes.NewReader(jsonBody))
 	if err != nil {
 		log.Printf("failed to create OpenRouter request: %v", err)
 		return
@@ -238,6 +283,11 @@ func (a *AiClient) forward(job aiJob) {
 
 	resp, err := openRouterHTTPClient.Do(req)
 	if err != nil {
+		if errors.Is(ctx.Err(), context.Canceled) {
+			cancelled = true
+			log.Printf("openrouter: job=%d cancelled before response", job.id)
+			return
+		}
 		log.Printf("OpenRouter request failed: %v", err)
 		if isOpenRouterTimeout(err) {
 			sendAIEvent(a, job, wsAIEvent{
@@ -257,6 +307,11 @@ func (a *AiClient) forward(job aiJob) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
+		if errors.Is(ctx.Err(), context.Canceled) {
+			cancelled = true
+			log.Printf("openrouter: job=%d cancelled with error status", job.id)
+			return
+		}
 		bodyBytes, err := io.ReadAll(resp.Body)
 		if err != nil {
 			sendAIEvent(a, job, wsAIEvent{
@@ -294,8 +349,18 @@ func (a *AiClient) forward(job aiJob) {
 
 	var buf strings.Builder
 	sentFirstNonWhitespace := false
+	firstDeltaLogged := false
+	var latestUsage openRouterUsage
+	logDeltaStream := openRouterLogDeltaStreamEnabled()
+	logDeltaStreamStarted := false
 
 	streamErr := parseSSEStream(resp, func(data []byte) error {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
 		trimmed := strings.TrimSpace(string(data))
 		if trimmed == "" {
 			return nil
@@ -313,8 +378,34 @@ func (a *AiClient) forward(job aiJob) {
 			})
 			return err
 		}
+		if chunk.Usage.hasAny() {
+			latestUsage = chunk.Usage
+		}
 
 		for _, choice := range chunk.Choices {
+			if logDeltaStream {
+				// For debugging: print a contiguous stream of deltas with no newline
+				// between chunks. This avoids "token soup" formatting from line-based logs.
+				// We still keep the structured timing/usage logs via log.Printf.
+				if !logDeltaStreamStarted {
+					logDeltaStreamStarted = true
+					_, _ = fmt.Fprintf(os.Stdout, "openrouter: job=%d delta_stream=", job.id)
+				}
+				if choice.Delta.Reasoning != "" {
+					_, _ = fmt.Fprint(os.Stdout, choice.Delta.Reasoning)
+				} else if choice.Delta.ReasoningContent != "" {
+					_, _ = fmt.Fprint(os.Stdout, choice.Delta.ReasoningContent)
+				}
+			} else {
+				reasoningText := strings.TrimSpace(choice.Delta.Reasoning)
+				if reasoningText == "" {
+					reasoningText = strings.TrimSpace(choice.Delta.ReasoningContent)
+				}
+				if reasoningText != "" {
+					log.Printf("openrouter: job=%d reasoning_delta=%q", job.id, reasoningText)
+				}
+			}
+
 			deltaText := choice.Delta.Content
 			if deltaText == "" {
 				continue
@@ -329,6 +420,19 @@ func (a *AiClient) forward(job aiJob) {
 				sentFirstNonWhitespace = true
 			}
 
+			if !firstDeltaLogged {
+				firstDeltaLogged = true
+				log.Printf("openrouter: job=%d first_delta_after=%s", job.id, time.Since(started).Truncate(time.Millisecond))
+			}
+
+			if logDeltaStream {
+				if !logDeltaStreamStarted {
+					logDeltaStreamStarted = true
+					_, _ = fmt.Fprintf(os.Stdout, "openrouter: job=%d delta_stream=", job.id)
+				}
+				_, _ = fmt.Fprint(os.Stdout, deltaText)
+			}
+
 			buf.WriteString(deltaText)
 			sendAIEvent(a, job, wsAIEvent{
 				Type:  "ai_delta",
@@ -339,20 +443,64 @@ func (a *AiClient) forward(job aiJob) {
 		return nil
 	})
 	if streamErr != nil {
+		if errors.Is(streamErr, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
+			cancelled = true
+			log.Printf("openrouter: job=%d cancelled during stream after=%s", job.id, time.Since(started).Truncate(time.Millisecond))
+			if logDeltaStreamStarted {
+				_, _ = fmt.Fprint(os.Stdout, "\n")
+			}
+			return
+		}
 		// `ai_replace` was already emitted for decode failures.
+		log.Printf("openrouter: job=%d stream error after=%s: %v", job.id, time.Since(started).Truncate(time.Millisecond), streamErr)
+		if logDeltaStreamStarted {
+			_, _ = fmt.Fprint(os.Stdout, "\n")
+		}
+		// Ensure the UI isn't left with a hanging "in progress" bubble.
+		sendAIEvent(a, job, wsAIEvent{
+			Type:  "ai_replace",
+			JobID: job.id,
+			Text:  openRouterName + ": [stream error]",
+		})
+		sendAIEvent(a, job, wsAIEvent{
+			Type:  "ai_end",
+			JobID: job.id,
+		})
 		return
 	}
 
 	// If we never streamed any non-whitespace content, replace the prefix bubble.
 	if strings.TrimSpace(buf.String()) == "" {
+		if logDeltaStreamStarted {
+			_, _ = fmt.Fprint(os.Stdout, "\n")
+		}
 		sendAIEvent(a, job, wsAIEvent{
 			Type:  "ai_replace",
 			JobID: job.id,
 			Text:  openRouterName + ": [empty response]",
 		})
+		// Ensure the frontend restores its send button state.
+		sendAIEvent(a, job, wsAIEvent{
+			Type:  "ai_end",
+			JobID: job.id,
+		})
 		return
 	}
 
+	assistantText = buf.String()
+	if logDeltaStreamStarted {
+		_, _ = fmt.Fprint(os.Stdout, "\n")
+	}
+	if latestUsage.hasAny() {
+		log.Printf(
+			"openrouter: job=%d usage prompt_tokens=%d completion_tokens=%d total_tokens=%d",
+			job.id,
+			latestUsage.PromptTokens,
+			latestUsage.CompletionTokens,
+			latestUsage.TotalTokens,
+		)
+	}
+	log.Printf("openrouter: job=%d done after=%s response=%q", job.id, time.Since(started).Truncate(time.Millisecond), assistantText)
 	sendAIEvent(a, job, wsAIEvent{
 		Type:  "ai_end",
 		JobID: job.id,

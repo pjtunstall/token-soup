@@ -13,11 +13,15 @@
 	} from '$lib/components/ui/card';
 	import { Input } from '$lib/components/ui/input';
 	import { ScrollArea } from '$lib/components/ui/scroll-area';
+import SendHorizontal from '@lucide/svelte/icons/send-horizontal';
+import Square from '@lucide/svelte/icons/square';
 
 	let socket: WebSocket | null = null;
 	let messageInput = $state('');
 	let messages = $state<string[]>([]);
 	let status = $state<'connecting' | 'connected' | 'closed' | 'error'>('connecting');
+	let awaitingAi = $state(false);
+	let activeAiJobId = $state<string>('');
 	let logContainer: HTMLDivElement | null = null;
 	let aiBubbleIndexByJobId: Record<string, number> = {};
 	let scrollRaf: number | null = null;
@@ -55,11 +59,15 @@
 
 		ws.onclose = () => {
 			status = 'closed';
+			awaitingAi = false;
+			activeAiJobId = '';
 			pushMessage('Connection closed.');
 		};
 
 		ws.onerror = () => {
 			status = 'error';
+			awaitingAi = false;
+			activeAiJobId = '';
 			pushMessage('Connection error.');
 		};
 
@@ -95,6 +103,8 @@
 			case 'ai_start': {
 				const idx = pushMessage(parsed.text ?? 'openrouter: ');
 				if (jobId) aiBubbleIndexByJobId[jobId] = idx;
+				awaitingAi = true;
+				activeAiJobId = jobId;
 				return;
 			}
 			case 'ai_delta': {
@@ -140,6 +150,10 @@
 			}
 			case 'ai_end': {
 				if (jobId) delete aiBubbleIndexByJobId[jobId];
+				if (jobId && jobId === activeAiJobId) {
+					awaitingAi = false;
+					activeAiJobId = '';
+				}
 				return;
 			}
 			default: {
@@ -151,9 +165,17 @@
 	}
 
 	function sendMessage() {
+		if (awaitingAi) return;
 		if (!socket || socket.readyState !== WebSocket.OPEN || !messageInput.trim()) return;
 		socket.send(messageInput);
 		messageInput = '';
+	}
+
+	function stopMessage() {
+		if (!socket || socket.readyState !== WebSocket.OPEN) return;
+		socket.send(JSON.stringify({ type: 'stop' }));
+		awaitingAi = false;
+		activeAiJobId = '';
 	}
 
 	function handleSubmit(event: SubmitEvent) {
@@ -206,11 +228,26 @@
 					type="text"
 					placeholder="Type a message..."
 					bind:value={messageInput}
-					disabled={status !== 'connected'}
+					disabled={status !== 'connected' || awaitingAi}
 				/>
-				<Button type="submit" disabled={status !== 'connected' || !messageInput.trim()}>
-					Send
-				</Button>
+				{#if awaitingAi}
+					<Button
+						type="button"
+						disabled={status !== 'connected'}
+						on:click={stopMessage}
+						aria-label="Stop"
+					>
+						<Square class="size-4" fill="currentColor" stroke="none" />
+					</Button>
+				{:else}
+					<Button
+						type="submit"
+						disabled={status !== 'connected' || !messageInput.trim()}
+						aria-label="Send"
+					>
+						<SendHorizontal class="size-4" />
+					</Button>
+				{/if}
 			</form>
 		</CardContent>
 	</Card>

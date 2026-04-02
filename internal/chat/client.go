@@ -2,6 +2,7 @@ package chat
 
 import (
 	"bytes"
+	"context"
 	"log"
 	"net/http"
 	"time"
@@ -40,6 +41,12 @@ type Client struct {
 
 	// Buffered channel of outbound messages.
 	send chan []byte // Buffer: 256.
+
+	// Conversation + AI in-flight state (mutated by hub goroutine).
+	history []string
+	aiBusy  bool
+	aiJobID uint64
+	aiCancel context.CancelFunc
 }
 
 // readPump pumps messages from the websocket connection to the hub.
