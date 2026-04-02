@@ -43,10 +43,10 @@ type openRouterMessage struct {
 }
 
 type openRouterRequest struct {
-	Model    string              `json:"model"`
-	Messages []openRouterMessage `json:"messages"`
-	Stream   bool                `json:"stream,omitempty"`
-	Temperature float32				 `json:"temperature,omitempty"`
+	Model       string              `json:"model"`
+	Messages    []openRouterMessage `json:"messages"`
+	Stream      bool                `json:"stream,omitempty"`
+	Temperature float32             `json:"temperature,omitempty"`
 }
 
 type openRouterChoice struct {
@@ -146,8 +146,8 @@ func newOpenRouterRequest(userPrompt string) openRouterRequest {
 			{Role: "system", Content: openRouterSystemPrompt},
 			{Role: "user", Content: userPrompt},
 		},
-		Stream: true,
-		Temperature: 0.7,
+		Stream:      true,
+		Temperature: 1.2,
 	}
 }
 
@@ -354,6 +354,17 @@ func (a *AiClient) forward(job aiJob) {
 	logDeltaStream := openRouterLogDeltaStreamEnabled()
 	logDeltaStreamStarted := false
 
+	// Ensure a user "stop" cancels any blocked stream reads immediately.
+	stopBody := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = resp.Body.Close()
+		case <-stopBody:
+		}
+	}()
+	defer close(stopBody)
+
 	streamErr := parseSSEStream(resp, func(data []byte) error {
 		select {
 		case <-ctx.Done():
@@ -499,6 +510,7 @@ func (a *AiClient) forward(job aiJob) {
 			latestUsage.CompletionTokens,
 			latestUsage.TotalTokens,
 		)
+
 	}
 	log.Printf("openrouter: job=%d done after=%s response=%q", job.id, time.Since(started).Truncate(time.Millisecond), assistantText)
 	sendAIEvent(a, job, wsAIEvent{

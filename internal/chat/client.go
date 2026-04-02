@@ -36,16 +36,16 @@ var upgrader = websocket.Upgrader{
 
 // Client is a middleman between the websocket connection and the hub.
 type Client struct {
-	hub *Hub
+	hub  *Hub
 	conn *websocket.Conn
 
 	// Buffered channel of outbound messages.
 	send chan []byte // Buffer: 256.
 
 	// Conversation + AI in-flight state (mutated by hub goroutine).
-	history []string
-	aiBusy  bool
-	aiJobID uint64
+	history  []string
+	aiBusy   bool
+	aiJobID  uint64
 	aiCancel context.CancelFunc
 }
 
@@ -67,7 +67,7 @@ func (c *Client) readPump() {
 
 	pongHandler := func(string) error { c.conn.SetReadDeadline(time.Now().Add(pongWait)); return nil }
 	c.conn.SetPongHandler(pongHandler)
-	
+
 	for {
 		_, message, err := c.conn.ReadMessage()
 		if err != nil {
@@ -129,7 +129,7 @@ func (c *Client) writePump() {
 			if err := w.Close(); err != nil {
 				return
 			}
-			// 
+			//
 		case <-ticker.C:
 			// Every tick, try to send a ping on the socket. If it doesn't
 			// succeed within the writeWait period, return from this function,

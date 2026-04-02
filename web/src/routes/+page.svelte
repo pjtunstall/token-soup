@@ -13,8 +13,8 @@
 	} from '$lib/components/ui/card';
 	import { Input } from '$lib/components/ui/input';
 	import { ScrollArea } from '$lib/components/ui/scroll-area';
-import SendHorizontal from '@lucide/svelte/icons/send-horizontal';
-import Square from '@lucide/svelte/icons/square';
+	import SendHorizontal from '@lucide/svelte/icons/send-horizontal';
+	import Square from '@lucide/svelte/icons/square';
 
 	let socket: WebSocket | null = null;
 	let messageInput = $state('');
@@ -120,11 +120,7 @@ import Square from '@lucide/svelte/icons/square';
 					return;
 				}
 				const current = messages[idx] ?? '';
-				messages = [
-					...messages.slice(0, idx),
-					current + deltaText,
-					...messages.slice(idx + 1)
-				];
+				messages = [...messages.slice(0, idx), current + deltaText, ...messages.slice(idx + 1)];
 				scheduleScroll();
 				return;
 			}
@@ -140,11 +136,7 @@ import Square from '@lucide/svelte/icons/square';
 					aiBubbleIndexByJobId[jobId] = newIdx;
 					return;
 				}
-				messages = [
-					...messages.slice(0, idx),
-					replacement,
-					...messages.slice(idx + 1)
-				];
+				messages = [...messages.slice(0, idx), replacement, ...messages.slice(idx + 1)];
 				scheduleScroll();
 				return;
 			}
@@ -194,8 +186,8 @@ import Square from '@lucide/svelte/icons/square';
 	<Card class="h-[80vh] w-full">
 		<CardHeader class="flex flex-row items-center justify-between space-y-0">
 			<div class="space-y-1">
-				<CardTitle>Ouija Chat</CardTitle>
-				<CardDescription>Human ↔ AI and AI ↔ AI</CardDescription>
+				<CardTitle>Token Soup</CardTitle>
+				<CardDescription>What do I get into today?</CardDescription>
 			</div>
 			<Badge variant={status === 'connected' ? 'default' : 'secondary'}>
 				{status}
