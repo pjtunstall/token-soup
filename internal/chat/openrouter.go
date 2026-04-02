@@ -20,6 +20,8 @@ const (
 	openRouterName  = "openrouter"
 
 	openRouterBusyUserMsg = "OpenRouter seems to be busy right now; please try again later."
+
+	openRouterSystemPrompt = "In this game, your challenge is to appear helpful, but answer only with more questions. Don't give any information away. Instead probe the reasons for the user's request. Challenge them like a gently persistent therapist or spiritual teacher. Try to conclude with one particularly pointed and personally challenging question."
 )
 
 func isOpenRouterTimeout(err error) bool {
@@ -96,10 +98,8 @@ func newOpenRouterRequest(userPrompt string) openRouterRequest {
 	return openRouterRequest{
 		Model: openRouterModel,
 		Messages: []openRouterMessage{
-			{
-				Role:    "user",
-				Content: userPrompt,
-			},
+			{Role: "system", Content: openRouterSystemPrompt},
+			{Role: "user", Content: userPrompt},
 		},
 	}
 }
