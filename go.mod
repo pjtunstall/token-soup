@@ -1,4 +1,4 @@
-module ouija
+module token-soup
 
 go 1.26.1
 

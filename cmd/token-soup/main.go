@@ -4,7 +4,7 @@ import (
 	"flag"
 	"log"
 	"net/http"
-	"ouija/internal/chat"
+	"token-soup/internal/chat"
 
 	"github.com/joho/godotenv"
 )

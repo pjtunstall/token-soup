@@ -17,7 +17,7 @@ trap cleanup EXIT INT TERM
 echo "Starting Go backend on :8080..."
 (
 	cd "$ROOT_DIR"
-	go run ./cmd/ouija
+	go run ./cmd/token-soup
 ) &
 GO_PID=$!
 
