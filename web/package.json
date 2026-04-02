@@ -53,5 +53,8 @@
 	"dependencies": {
 		"isomorphic-dompurify": "^3.7.1",
 		"marked": "^17.0.5"
+	},
+	"overrides": {
+		"cookie": "^0.7.2"
 	}
 }
