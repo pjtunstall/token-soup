@@ -120,7 +120,7 @@ func newOpenRouterRequest(userPrompt string) openRouterRequest {
 			{Role: "user", Content: userPrompt},
 		},
 		Stream:      true,
-		Temperature: 2,
+		Temperature: 1.2,
 	}
 }
 

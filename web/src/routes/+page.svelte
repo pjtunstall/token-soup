@@ -17,6 +17,8 @@
 	import { ScrollArea } from '$lib/components/ui/scroll-area';
 	import SendHorizontal from '@lucide/svelte/icons/send-horizontal';
 	import Square from '@lucide/svelte/icons/square';
+	import ChevronDown from '@lucide/svelte/icons/chevron-down';
+	import ChevronUp from '@lucide/svelte/icons/chevron-up';
 	import Moon from '@lucide/svelte/icons/moon';
 	import Sun from '@lucide/svelte/icons/sun';
 	import { toggleTheme as applyToggleTheme } from '$lib/theme';
@@ -37,7 +39,7 @@
 				role: 'assistant';
 				text: string;
 				assistantName?: string;
-				/** Ephemeral reasoning stream; cleared when answer tokens arrive. */
+				/** Model reasoning; kept after the answer streams so the user can reopen it. */
 				reasoningText?: string;
 		  };
 
@@ -54,12 +56,25 @@
 
 	const supabase = getSupabase();
 
-	function showThinkingRow(i: number, msg: ChatBubble): boolean {
-		if (msg.role !== 'assistant') return false;
+	function assistantStreamContext(i: number, msg: ChatBubble) {
+		if (msg.role !== 'assistant') {
+			return { streamingHere: false, hasReasoning: false };
+		}
 		const activeIdx =
 			activeAiJobId !== '' ? aiBubbleIndexByJobId[activeAiJobId] : undefined;
 		const streamingHere = awaitingAi && activeIdx === i;
 		const hasReasoning = !!msg.reasoningText?.trim();
+		return { streamingHere, hasReasoning };
+	}
+
+	/** Pulsing “Thinking…” only while this assistant reply is still streaming. */
+	function showThinkingPulse(i: number, msg: ChatBubble): boolean {
+		return assistantStreamContext(i, msg).streamingHere;
+	}
+
+	/** Separate control to open reasoning (while streaming or after stop, if any). */
+	function showReasoningControl(i: number, msg: ChatBubble): boolean {
+		const { streamingHere, hasReasoning } = assistantStreamContext(i, msg);
 		return streamingHere || hasReasoning;
 	}
 
@@ -159,14 +174,17 @@
 				const current = messages[idx];
 				if (!current || current.role !== 'assistant') return;
 				const nm = current.assistantName ?? parsed.name;
-				const stripReasoning = deltaText.trim() !== '';
+				const answerStarted = deltaText.trim() !== '';
+				if (answerStarted) {
+					reasoningExpandedByIndex = { ...reasoningExpandedByIndex, [idx]: false };
+				}
 				messages = [
 					...messages.slice(0, idx),
 					{
 						role: 'assistant',
 						text: current.text + deltaText,
 						assistantName: nm,
-						reasoningText: stripReasoning ? undefined : current.reasoningText
+						reasoningText: current.reasoningText
 					},
 					...messages.slice(idx + 1)
 				];
@@ -187,9 +205,16 @@
 				}
 				const cur = messages[idx];
 				const nm = cur?.role === 'assistant' ? (cur.assistantName ?? parsed.name) : parsed.name;
+				const keepReasoning =
+					cur?.role === 'assistant' ? cur.reasoningText : undefined;
 				messages = [
 					...messages.slice(0, idx),
-					{ role: 'assistant', text: replacement, assistantName: nm, reasoningText: undefined },
+					{
+						role: 'assistant',
+						text: replacement,
+						assistantName: nm,
+						reasoningText: keepReasoning
+					},
 					...messages.slice(idx + 1)
 				];
 				scheduleScroll();
@@ -429,46 +454,71 @@
 										<li
 											class="rounded-lg border-2 border-bubble-assistant-border bg-bubble-assistant px-3 py-2 text-sm text-foreground"
 										>
-											{#if showThinkingRow(i, msg)}
-												{#if !reasoningExpandedByIndex[i]}
-													<button
-														type="button"
-														class="thinking-pulse-bubble mb-2 inline-flex max-w-full cursor-pointer items-baseline gap-0 rounded-lg border-2 px-3 py-2 text-left text-sm font-medium text-foreground shadow-sm transition-colors hover:brightness-105 focus-visible:outline focus-visible:ring-2 focus-visible:ring-ring"
-														onclick={() => toggleReasoningExpanded(i)}
-														aria-expanded="false"
-														aria-label="Thinking in progress. Click to show model reasoning."
-													>
-														<span>Thinking</span><span class="thinking-dots" aria-hidden="true"
-															><span>.</span><span>.</span><span>.</span></span
-														>
-													</button>
-												{:else}
-													<div
-														class="reasoning-expanded-panel mb-2 overflow-hidden rounded-lg border-2 border-primary/35 bg-card/90 text-left shadow-md"
-													>
+											{#if showThinkingPulse(i, msg) || showReasoningControl(i, msg)}
+												<div class="mb-2 flex flex-col gap-2">
+													{#if showThinkingPulse(i, msg)}
 														<div
-															class="flex items-center justify-between gap-2 border-b border-border/60 bg-primary/8 px-3 py-1.5"
+															class="thinking-pulse-bubble inline-flex w-fit max-w-full items-baseline gap-0 rounded-lg border-2 px-3 py-2 text-sm font-medium text-foreground shadow-sm"
+															role="status"
+															aria-live="polite"
+															aria-label="Assistant is thinking"
 														>
-															<span class="text-xs font-medium text-foreground/90">Reasoning</span>
+															<span>Thinking</span><span class="thinking-dots" aria-hidden="true"
+																><span>.</span><span>.</span><span>.</span></span
+															>
+														</div>
+													{/if}
+													{#if showReasoningControl(i, msg)}
+														{#if !reasoningExpandedByIndex[i]}
 															<button
 																type="button"
-																class="text-xs font-medium text-primary underline-offset-4 hover:underline"
+																class="reasoning-disclosure flex w-full max-w-full items-center justify-start gap-0.5 rounded-md py-1 pl-0 pr-1 text-left transition-colors hover:text-foreground focus-visible:outline focus-visible:ring-2 focus-visible:ring-ring"
 																onclick={() => toggleReasoningExpanded(i)}
-																aria-expanded="true"
-																aria-label="Hide reasoning"
+																aria-expanded="false"
+																aria-label="Show reasoning"
 															>
-																Hide
+																<span
+																	class="text-xs font-medium tracking-normal text-muted-foreground"
+																	>Reasoning</span
+																>
+																<ChevronDown
+																	class="size-3.5 shrink-0 text-muted-foreground/75"
+																	strokeWidth={2}
+																	aria-hidden="true"
+																/>
 															</button>
-														</div>
-														<p
-															class="max-h-64 overflow-y-auto whitespace-pre-wrap break-words px-3 py-2 font-mono text-xs leading-relaxed text-muted-foreground"
-														>
-															{msg.reasoningText?.trim()
-																? msg.reasoningText
-																: 'Waiting for reasoning…'}
-														</p>
-													</div>
-												{/if}
+														{:else}
+															<div
+																class="reasoning-expanded-panel overflow-hidden rounded-md border border-border/55 bg-background/40 text-left shadow-sm"
+															>
+																<button
+																	type="button"
+																	class="reasoning-disclosure flex w-full items-center justify-start gap-0.5 border-b border-border/50 px-2 py-1.5 text-left transition-colors hover:bg-muted/30 focus-visible:outline focus-visible:ring-2 focus-visible:ring-ring"
+																	onclick={() => toggleReasoningExpanded(i)}
+																	aria-expanded="true"
+																	aria-label="Hide reasoning"
+																>
+																	<span
+																		class="text-xs font-medium tracking-normal text-muted-foreground"
+																		>Reasoning</span
+																	>
+																	<ChevronUp
+																		class="size-3.5 shrink-0 text-muted-foreground/75"
+																		strokeWidth={2}
+																		aria-hidden="true"
+																	/>
+																</button>
+																<p
+																	class="max-h-64 overflow-y-auto whitespace-pre-wrap break-words px-2 py-2 font-mono text-xs leading-relaxed text-muted-foreground"
+																>
+																	{msg.reasoningText?.trim()
+																		? msg.reasoningText
+																		: 'Waiting for reasoning…'}
+																</p>
+															</div>
+														{/if}
+													{/if}
+												</div>
 											{/if}
 											<div
 												class="prose prose-sm max-w-none text-foreground dark:prose-invert prose-headings:mt-3 prose-headings:mb-2 prose-p:my-2 first:prose-p:mt-0 last:prose-p:mb-0 prose-pre:my-2 prose-strong:font-semibold prose-strong:text-foreground"
