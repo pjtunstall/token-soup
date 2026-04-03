@@ -271,3 +271,25 @@ html.dark {
 		display: none;
 	}
 }
+
+/* Ephemeral “thinking” reasoning preview: gentle brightness pulse (respect reduced motion). */
+@keyframes reasoning-brightness-pulse {
+	0%,
+	100% {
+		opacity: 0.72;
+	}
+	50% {
+		opacity: 1;
+	}
+}
+
+.reasoning-bubble {
+	animation: reasoning-brightness-pulse 2.2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.reasoning-bubble {
+		animation: none;
+		opacity: 0.88;
+	}
+}

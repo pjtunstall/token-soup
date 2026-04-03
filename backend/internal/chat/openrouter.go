@@ -120,7 +120,7 @@ func newOpenRouterRequest(userPrompt string) openRouterRequest {
 			{Role: "user", Content: userPrompt},
 		},
 		Stream:      true,
-		Temperature: 1.2,
+		Temperature: 2,
 	}
 }
 
@@ -349,21 +349,21 @@ func (s *openRouterStreamState) onSSEData(data []byte) error {
 	}
 
 	for _, choice := range chunk.Choices {
-		if s.logDeltaStream {
-			s.ensureDeltaStreamPrefix()
-			if choice.Delta.Reasoning != "" {
-				_, _ = fmt.Fprint(os.Stdout, choice.Delta.Reasoning)
-			} else if choice.Delta.ReasoningContent != "" {
-				_, _ = fmt.Fprint(os.Stdout, choice.Delta.ReasoningContent)
+		reasoningPart := choice.Delta.Reasoning
+		if reasoningPart == "" {
+			reasoningPart = choice.Delta.ReasoningContent
+		}
+		if reasoningPart != "" {
+			if s.logDeltaStream {
+				s.ensureDeltaStreamPrefix()
+				_, _ = fmt.Fprint(os.Stdout, reasoningPart)
+			} else {
+				log.Printf("openrouter: job=%d reasoning_delta=%q", s.jobID, strings.TrimSpace(reasoningPart))
 			}
-		} else {
-			reasoningText := strings.TrimSpace(choice.Delta.Reasoning)
-			if reasoningText == "" {
-				reasoningText = strings.TrimSpace(choice.Delta.ReasoningContent)
-			}
-			if reasoningText != "" {
-				log.Printf("openrouter: job=%d reasoning_delta=%q", s.jobID, reasoningText)
-			}
+			emitAI(s.emit, s.jobID, s.assistantName, AIEvent{
+				Type: "ai_reasoning_delta",
+				Text: reasoningPart,
+			})
 		}
 
 		deltaText := choice.Delta.Content

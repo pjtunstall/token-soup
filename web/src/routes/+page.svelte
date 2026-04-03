@@ -33,7 +33,13 @@
 
 	type ChatBubble =
 		| { role: 'user'; displayName: string; text: string }
-		| { role: 'assistant'; text: string; assistantName?: string };
+		| {
+				role: 'assistant';
+				text: string;
+				assistantName?: string;
+				/** Ephemeral reasoning stream; cleared when answer tokens arrive. */
+				reasoningText?: string;
+		  };
 
 	let messageInput = $state('');
 	let messages = $state<ChatBubble[]>([]);
@@ -94,6 +100,34 @@
 				activeAiJobId = jobId;
 				return;
 			}
+			case 'ai_reasoning_delta': {
+				const deltaText = parsed.text ?? '';
+				if (!deltaText) return;
+				if (!jobId) return;
+				let idx = aiBubbleIndexByJobId[jobId];
+				if (idx === undefined) {
+					idx = pushAssistantBubble(parsed.name ? `${parsed.name}: ` : '', parsed.name);
+					aiBubbleIndexByJobId[jobId] = idx;
+					awaitingAi = true;
+					activeAiJobId = jobId;
+				}
+				const current = messages[idx];
+				if (!current || current.role !== 'assistant') return;
+				const nm = current.assistantName ?? parsed.name;
+				const prevReasoning = current.reasoningText ?? '';
+				messages = [
+					...messages.slice(0, idx),
+					{
+						role: 'assistant',
+						text: current.text,
+						reasoningText: prevReasoning + deltaText,
+						assistantName: nm
+					},
+					...messages.slice(idx + 1)
+				];
+				scheduleScroll();
+				return;
+			}
 			case 'ai_delta': {
 				if (!jobId) {
 					pushAssistantBubble(parsed.text ?? '', parsed.name);
@@ -109,9 +143,15 @@
 				const current = messages[idx];
 				if (!current || current.role !== 'assistant') return;
 				const nm = current.assistantName ?? parsed.name;
+				const stripReasoning = deltaText.trim() !== '';
 				messages = [
 					...messages.slice(0, idx),
-					{ role: 'assistant', text: current.text + deltaText, assistantName: nm },
+					{
+						role: 'assistant',
+						text: current.text + deltaText,
+						assistantName: nm,
+						reasoningText: stripReasoning ? undefined : current.reasoningText
+					},
 					...messages.slice(idx + 1)
 				];
 				scheduleScroll();
@@ -133,7 +173,7 @@
 				const nm = cur?.role === 'assistant' ? (cur.assistantName ?? parsed.name) : parsed.name;
 				messages = [
 					...messages.slice(0, idx),
-					{ role: 'assistant', text: replacement, assistantName: nm },
+					{ role: 'assistant', text: replacement, assistantName: nm, reasoningText: undefined },
 					...messages.slice(idx + 1)
 				];
 				scheduleScroll();
@@ -372,6 +412,17 @@
 										<li
 											class="rounded-lg border-2 border-bubble-assistant-border bg-bubble-assistant px-3 py-2 text-sm text-foreground"
 										>
+											{#if msg.reasoningText?.trim()}
+												<div
+													class="reasoning-bubble mb-2 rounded-md border border-bubble-assistant-border/50 bg-bubble-assistant/80 px-2 py-1.5"
+												>
+													<p
+														class="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-muted-foreground/80"
+													>
+														{msg.reasoningText}
+													</p>
+												</div>
+											{/if}
 											<div
 												class="prose prose-sm max-w-none text-foreground dark:prose-invert prose-headings:mt-3 prose-headings:mb-2 prose-p:my-2 first:prose-p:mt-0 last:prose-p:mb-0 prose-pre:my-2 prose-strong:font-semibold prose-strong:text-foreground"
 											>
