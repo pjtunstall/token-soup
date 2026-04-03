@@ -5,16 +5,25 @@
 
 @custom-variant dark (&:is(.dark *));
 
+html {
+	color-scheme: light;
+}
+html.dark {
+	color-scheme: dark;
+}
+
 /*
 	Palette: violet-indigo (brand, assistant, chrome) + sky (user role).
 	All neutrals carry a slight shared hue so the UI feels warm and intentional.
 */
 :root {
-	--background: oklch(0.985 0.018 268);
+	/* Brighter canvas so the card can sit clearly darker */
+	--background: oklch(0.99 0.016 268);
 	--foreground: oklch(0.22 0.045 268);
-	--card: oklch(0.995 0.012 268);
+	/* Stronger step down from page bg for clear figure/ground */
+	--card: oklch(0.915 0.058 268);
 	--card-foreground: oklch(0.22 0.045 268);
-	--popover: oklch(0.995 0.012 268);
+	--popover: oklch(0.915 0.058 268);
 	--popover-foreground: oklch(0.22 0.045 268);
 	--primary: oklch(0.46 0.2 272);
 	--primary-foreground: oklch(0.99 0.015 272);
@@ -26,7 +35,10 @@
 	--accent-foreground: oklch(0.28 0.08 265);
 	--destructive: oklch(0.577 0.245 27.325);
 	--border: oklch(0.88 0.045 265);
+	/* Border color for inputs; fill uses --field */
 	--input: oklch(0.88 0.045 265);
+	/* Transcript + composer: same lightness as outline controls (e.g. Sign out) */
+	--field: var(--background);
 	--ring: oklch(0.56 0.17 268);
 	--chart-1: oklch(0.62 0.2 268);
 	--chart-2: oklch(0.55 0.18 255);
@@ -47,14 +59,17 @@
 	--bubble-user-border: oklch(0.58 0.14 230 / 0.42);
 	--bubble-assistant: oklch(0.935 0.055 282);
 	--bubble-assistant-border: oklch(0.58 0.15 282 / 0.4);
+	--card-shadow: 0 14px 44px -14px color-mix(in oklch, var(--primary) 22%, transparent),
+		0 2px 10px -4px color-mix(in oklch, var(--foreground) 8%, transparent);
 }
 
 .dark {
-	--background: oklch(0.165 0.038 268);
+	/* Deeper page + lifted card for clearer separation */
+	--background: oklch(0.145 0.042 268);
 	--foreground: oklch(0.97 0.025 268);
-	--card: oklch(0.215 0.045 268);
+	--card: oklch(0.275 0.065 268);
 	--card-foreground: oklch(0.97 0.025 268);
-	--popover: oklch(0.215 0.045 268);
+	--popover: oklch(0.275 0.065 268);
 	--popover-foreground: oklch(0.97 0.025 268);
 	--primary: oklch(0.72 0.14 272);
 	--primary-foreground: oklch(0.16 0.05 272);
@@ -67,6 +82,8 @@
 	--destructive: oklch(0.704 0.191 22.216);
 	--border: oklch(0.38 0.05 265);
 	--input: oklch(0.38 0.05 265);
+	/* Lighter strip, in line with outline + `dark:bg-input/30` */
+	--field: oklch(0.3 0.055 268);
 	--ring: oklch(0.58 0.12 268);
 	--chart-1: oklch(0.72 0.16 268);
 	--chart-2: oklch(0.65 0.14 255);
@@ -85,6 +102,8 @@
 	--bubble-user-border: oklch(0.62 0.14 230 / 0.45);
 	--bubble-assistant: oklch(0.31 0.06 282);
 	--bubble-assistant-border: oklch(0.62 0.14 282 / 0.42);
+	--card-shadow: 0 18px 48px -16px color-mix(in oklch, var(--primary) 28%, transparent),
+		0 2px 12px -4px color-mix(in oklch, var(--foreground) 12%, transparent);
 }
 
 @theme inline {
@@ -124,6 +143,7 @@
 	--color-bubble-user-border: var(--bubble-user-border);
 	--color-bubble-assistant: var(--bubble-assistant);
 	--color-bubble-assistant-border: var(--bubble-assistant-border);
+	--color-field: var(--field);
 	--radius-sm: calc(var(--radius) * 0.6);
 	--radius-md: calc(var(--radius) * 0.8);
 	--radius-lg: var(--radius);
@@ -131,6 +151,7 @@
 	--radius-2xl: calc(var(--radius) * 1.8);
 	--radius-3xl: calc(var(--radius) * 2.2);
 	--radius-4xl: calc(var(--radius) * 2.6);
+	--shadow-card: var(--card-shadow);
 }
 
 @layer base {

@@ -17,6 +17,9 @@
 	import { ScrollArea } from '$lib/components/ui/scroll-area';
 	import SendHorizontal from '@lucide/svelte/icons/send-horizontal';
 	import Square from '@lucide/svelte/icons/square';
+	import Moon from '@lucide/svelte/icons/moon';
+	import Sun from '@lucide/svelte/icons/sun';
+	import { toggleTheme as applyToggleTheme } from '$lib/theme';
 
 	let authState = $state<'loading' | 'signed_out' | 'signed_in'>('loading');
 	let session = $state<Session | null>(null);
@@ -245,6 +248,10 @@
 		void sendMessage();
 	}
 
+	function handleToggleTheme() {
+		applyToggleTheme();
+	}
+
 	onDestroy(() => {
 		abortController?.abort();
 	});
@@ -258,6 +265,18 @@
 				<CardDescription>What do I get into today?</CardDescription>
 			</div>
 			<div class="flex items-center gap-2">
+				<Button
+					type="button"
+					variant="outline"
+					size="icon-sm"
+					class="shrink-0"
+					onclick={handleToggleTheme}
+					aria-label="Toggle color theme"
+					title="Light / dark"
+				>
+					<Sun class="hidden size-4 dark:block" />
+					<Moon class="size-4 dark:hidden" />
+				</Button>
 				{#if authState === 'signed_in'}
 					<Button type="button" variant="outline" size="sm" onclick={() => void signOut()}>Sign out</Button>
 				{:else if authState === 'signed_out'}
@@ -332,8 +351,8 @@
 					</form>
 				</div>
 			{:else}
-				<ScrollArea class="min-h-0 flex-1 rounded-md border">
-					<div bind:this={logContainer} class="space-y-2 p-3">
+				<ScrollArea class="min-h-0 flex-1 rounded-md border border-input bg-field">
+					<div bind:this={logContainer} class="min-h-full space-y-2 p-3">
 						{#if messages.length === 0}
 							<p class="text-sm text-muted-foreground">No messages yet.</p>
 						{:else}
