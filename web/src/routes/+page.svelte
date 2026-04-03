@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { onDestroy, onMount, tick } from 'svelte';
-	import { renderMarkdown } from '$lib/markdown';
-	import { getWebSocketUrl } from '$lib/ws';
+	import { renderAssistantBubble, renderMarkdown } from '$lib/markdown';
+	import { postChat, type AIStreamEvent } from '$lib/chat';
+	import { getSupabase } from '$lib/supabase';
+	import type { Session } from '@supabase/supabase-js';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
 	import {
@@ -16,15 +18,39 @@
 	import SendHorizontal from '@lucide/svelte/icons/send-horizontal';
 	import Square from '@lucide/svelte/icons/square';
 
-	let socket: WebSocket | null = null;
+	let authState = $state<'loading' | 'signed_out' | 'signed_in'>('loading');
+	let session = $state<Session | null>(null);
+	let email = $state('');
+	let password = $state('');
+	let authError = $state('');
+	let authMode = $state<'sign_in' | 'sign_up'>('sign_in');
+	/** Shown after sign-up when email confirmation is required (no session yet). */
+	let signUpMessage = $state('');
+	let displayNameInput = $state('');
+
+	type ChatBubble =
+		| { role: 'user'; displayName: string; text: string }
+		| { role: 'assistant'; text: string; assistantName?: string };
+
 	let messageInput = $state('');
-	let messages = $state<string[]>([]);
-	let status = $state<'connecting' | 'connected' | 'closed' | 'error'>('connecting');
+	let messages = $state<ChatBubble[]>([]);
 	let awaitingAi = $state(false);
 	let activeAiJobId = $state<string>('');
-	let logContainer: HTMLDivElement | null = null;
+	let logContainer = $state<HTMLDivElement | null>(null);
 	let aiBubbleIndexByJobId: Record<string, number> = {};
 	let scrollRaf: number | null = null;
+	let abortController: AbortController | null = null;
+
+	const supabase = getSupabase();
+
+	function getDisplayName(s: Session | null): string {
+		if (!s?.user) return 'You';
+		const meta = s.user.user_metadata as { display_name?: string } | undefined;
+		const d = meta?.display_name?.trim();
+		if (d) return d;
+		const email = s.user.email?.split('@')[0];
+		return email ?? 'You';
+	}
 
 	function scheduleScroll() {
 		if (scrollRaf !== null) return;
@@ -34,9 +60,17 @@
 		});
 	}
 
-	function pushMessage(text: string) {
+	function pushAssistantBubble(text: string, assistantName?: string) {
 		const idx = messages.length;
-		messages = [...messages, text];
+		const n = assistantName?.trim();
+		messages = [...messages, { role: 'assistant', text, assistantName: n || undefined }];
+		scheduleScroll();
+		return idx;
+	}
+
+	function pushUserBubble(displayName: string, text: string) {
+		const idx = messages.length;
+		messages = [...messages, { role: 'user', displayName, text }];
 		scheduleScroll();
 		return idx;
 	}
@@ -47,61 +81,11 @@
 		logContainer.scrollTop = logContainer.scrollHeight;
 	}
 
-	function connect() {
-		status = 'connecting';
-		const ws = new WebSocket(getWebSocketUrl());
-		socket = ws;
-
-		ws.onopen = () => {
-			status = 'connected';
-			pushMessage('Connected.');
-		};
-
-		ws.onclose = () => {
-			status = 'closed';
-			awaitingAi = false;
-			activeAiJobId = '';
-			pushMessage('Connection closed.');
-		};
-
-		ws.onerror = () => {
-			status = 'error';
-			awaitingAi = false;
-			activeAiJobId = '';
-			pushMessage('Connection error.');
-		};
-
-		ws.onmessage = (event) => {
-			const raw = String(event.data);
-			if (!raw) return;
-
-			// Backend batches websocket writes with '\n' separators.
-			for (const part of raw.split('\n')) {
-				const text = part.trimEnd();
-				if (!text) continue;
-				handleIncomingText(text);
-			}
-		};
-	}
-
-	function handleIncomingText(text: string) {
-		let parsed: any;
-		try {
-			parsed = JSON.parse(text);
-		} catch {
-			pushMessage(text);
-			return;
-		}
-
-		if (!parsed || typeof parsed !== 'object' || typeof parsed.type !== 'string') {
-			pushMessage(text);
-			return;
-		}
-
+	function handleStreamEvent(parsed: AIStreamEvent) {
 		const jobId = parsed.jobId !== undefined ? String(parsed.jobId) : '';
 		switch (parsed.type) {
 			case 'ai_start': {
-				const idx = pushMessage(parsed.text ?? 'openrouter: ');
+				const idx = pushAssistantBubble(parsed.text ?? '', parsed.name);
 				if (jobId) aiBubbleIndexByJobId[jobId] = idx;
 				awaitingAi = true;
 				activeAiJobId = jobId;
@@ -109,34 +93,46 @@
 			}
 			case 'ai_delta': {
 				if (!jobId) {
-					pushMessage(parsed.text ?? '');
+					pushAssistantBubble(parsed.text ?? '', parsed.name);
 					return;
 				}
 				const idx = aiBubbleIndexByJobId[jobId];
 				const deltaText = parsed.text ?? '';
 				if (idx === undefined) {
-					const newIdx = pushMessage(deltaText);
+					const newIdx = pushAssistantBubble(deltaText, parsed.name);
 					aiBubbleIndexByJobId[jobId] = newIdx;
 					return;
 				}
-				const current = messages[idx] ?? '';
-				messages = [...messages.slice(0, idx), current + deltaText, ...messages.slice(idx + 1)];
+				const current = messages[idx];
+				if (!current || current.role !== 'assistant') return;
+				const nm = current.assistantName ?? parsed.name;
+				messages = [
+					...messages.slice(0, idx),
+					{ role: 'assistant', text: current.text + deltaText, assistantName: nm },
+					...messages.slice(idx + 1)
+				];
 				scheduleScroll();
 				return;
 			}
 			case 'ai_replace': {
 				if (!jobId) {
-					pushMessage(parsed.text ?? '');
+					pushAssistantBubble(parsed.text ?? '', parsed.name);
 					return;
 				}
 				const idx = aiBubbleIndexByJobId[jobId];
 				const replacement = parsed.text ?? '';
 				if (idx === undefined) {
-					const newIdx = pushMessage(replacement);
+					const newIdx = pushAssistantBubble(replacement, parsed.name);
 					aiBubbleIndexByJobId[jobId] = newIdx;
 					return;
 				}
-				messages = [...messages.slice(0, idx), replacement, ...messages.slice(idx + 1)];
+				const cur = messages[idx];
+				const nm = cur?.role === 'assistant' ? (cur.assistantName ?? parsed.name) : parsed.name;
+				messages = [
+					...messages.slice(0, idx),
+					{ role: 'assistant', text: replacement, assistantName: nm },
+					...messages.slice(idx + 1)
+				];
 				scheduleScroll();
 				return;
 			}
@@ -149,36 +145,108 @@
 				return;
 			}
 			default: {
-				// Unknown structured message: show as raw.
-				pushMessage(text);
+				pushAssistantBubble(JSON.stringify(parsed), parsed.name);
 				return;
 			}
 		}
 	}
 
-	function sendMessage() {
-		if (awaitingAi) return;
-		if (!socket || socket.readyState !== WebSocket.OPEN || !messageInput.trim()) return;
-		socket.send(messageInput);
+	async function handleAuthSubmit(e: SubmitEvent) {
+		e.preventDefault();
+		authError = '';
+		signUpMessage = '';
+
+		if (authMode === 'sign_up') {
+			const name = displayNameInput.trim();
+			if (!name) {
+				authError = 'Please enter a display name.';
+				return;
+			}
+			const { data, error } = await supabase.auth.signUp({
+				email,
+				password,
+				options: {
+					data: {
+						display_name: name
+					}
+				}
+			});
+			if (error) {
+				authError = error.message;
+				return;
+			}
+			if (data.session) {
+				// Logged in immediately (e.g. email confirmation disabled in Supabase).
+				return;
+			}
+			signUpMessage =
+				'Check your email for a confirmation link. After you confirm, sign in here.';
+			password = '';
+			return;
+		}
+
+		const { error } = await supabase.auth.signInWithPassword({ email, password });
+		if (error) authError = error.message;
+	}
+
+	async function signOut() {
+		await supabase.auth.signOut();
+		messages = [];
+		aiBubbleIndexByJobId = {};
+	}
+
+	onMount(() => {
+		void supabase.auth.getSession().then(({ data: { session: s } }) => {
+			session = s;
+			authState = s ? 'signed_in' : 'signed_out';
+		});
+
+		const {
+			data: { subscription }
+		} = supabase.auth.onAuthStateChange((_event, s) => {
+			session = s;
+			authState = s ? 'signed_in' : 'signed_out';
+		});
+
+		return () => subscription.unsubscribe();
+	});
+
+	async function sendMessage() {
+		if (awaitingAi || !session?.access_token || !messageInput.trim()) return;
+		const text = messageInput.trim();
+		const who = getDisplayName(session);
+		pushUserBubble(who, text);
 		messageInput = '';
+		awaitingAi = true;
+		abortController = new AbortController();
+		try {
+			await postChat(text, session.access_token, abortController.signal, handleStreamEvent);
+		} catch (err) {
+			const name = err instanceof Error ? err.name : '';
+			if (name !== 'AbortError') {
+				const msg = err instanceof Error ? err.message : String(err);
+				pushAssistantBubble(`Error: ${msg}`, undefined);
+			}
+		} finally {
+			awaitingAi = false;
+			activeAiJobId = '';
+			abortController = null;
+		}
 	}
 
 	function stopMessage() {
-		if (!socket || socket.readyState !== WebSocket.OPEN) return;
-		socket.send(JSON.stringify({ type: 'stop' }));
+		abortController?.abort();
 		awaitingAi = false;
 		activeAiJobId = '';
 	}
 
 	function handleSubmit(event: SubmitEvent) {
 		event.preventDefault();
-		sendMessage();
+		void sendMessage();
 	}
 
-	onMount(connect);
-
 	onDestroy(() => {
-		socket?.close();
+		abortController?.abort();
 	});
 </script>
 
@@ -189,58 +257,134 @@
 				<CardTitle>Token Soup</CardTitle>
 				<CardDescription>What do I get into today?</CardDescription>
 			</div>
-			<Badge variant={status === 'connected' ? 'default' : 'secondary'}>
-				{status}
-			</Badge>
+			<div class="flex items-center gap-2">
+				{#if authState === 'signed_in'}
+					<Button type="button" variant="outline" size="sm" onclick={() => void signOut()}>Sign out</Button>
+				{:else if authState === 'signed_out'}
+					<Badge variant="secondary">signed out</Badge>
+				{:else}
+					<Badge variant="secondary">…</Badge>
+				{/if}
+			</div>
 		</CardHeader>
 		<CardContent class="flex h-[calc(100%-6rem)] flex-col gap-3">
-			<ScrollArea class="min-h-0 flex-1 rounded-md border">
-				<div bind:this={logContainer} class="space-y-2 p-3">
-					{#if messages.length === 0}
-						<p class="text-sm text-muted-foreground">No messages yet.</p>
-					{:else}
-						<ul class="space-y-2">
-							{#each messages as msg, i (i)}
-								<li class="rounded-md bg-secondary px-3 py-2 text-sm text-secondary-foreground">
-									<div
-										class="prose prose-sm max-w-none dark:prose-invert prose-headings:mt-3 prose-headings:mb-2 prose-p:my-2 first:prose-p:mt-0 last:prose-p:mb-0 prose-pre:my-2"
-									>
-										<!-- eslint-disable-next-line svelte/no-at-html-tags -- DOMPurify sanitizes LLM HTML -->
-										{@html renderMarkdown(msg)}
-									</div>
-								</li>
-							{/each}
-						</ul>
-					{/if}
+			{#if authState === 'loading'}
+				<p class="text-sm text-muted-foreground">Loading…</p>
+			{:else if authState === 'signed_out'}
+				<div class="flex max-w-sm flex-col gap-3">
+					<div class="flex gap-2 text-sm">
+						<button
+							type="button"
+							class="rounded-md px-2 py-1 underline-offset-4 hover:underline {authMode === 'sign_in'
+								? 'font-medium text-foreground'
+								: 'text-muted-foreground'}"
+							onclick={() => {
+								authMode = 'sign_in';
+								authError = '';
+								signUpMessage = '';
+								displayNameInput = '';
+							}}
+						>
+							Sign in
+						</button>
+						<span class="text-muted-foreground">·</span>
+						<button
+							type="button"
+							class="rounded-md px-2 py-1 underline-offset-4 hover:underline {authMode === 'sign_up'
+								? 'font-medium text-foreground'
+								: 'text-muted-foreground'}"
+							onclick={() => {
+								authMode = 'sign_up';
+								authError = '';
+								signUpMessage = '';
+							}}
+						>
+							Create account
+						</button>
+					</div>
+					<form class="flex flex-col gap-2" onsubmit={handleAuthSubmit}>
+						{#if authMode === 'sign_up'}
+							<Input
+								type="text"
+								placeholder="Display name"
+								bind:value={displayNameInput}
+								autocomplete="nickname"
+								maxlength={64}
+								required
+							/>
+						{/if}
+						<Input type="email" placeholder="Email" bind:value={email} autocomplete="email" required />
+						<Input
+							type="password"
+							placeholder="Password"
+							bind:value={password}
+							autocomplete={authMode === 'sign_up' ? 'new-password' : 'current-password'}
+							minlength={authMode === 'sign_up' ? 6 : undefined}
+							required
+						/>
+						{#if authError}
+							<p class="text-sm text-destructive">{authError}</p>
+						{/if}
+						{#if signUpMessage}
+							<p class="text-sm text-muted-foreground">{signUpMessage}</p>
+						{/if}
+						<Button type="submit">{authMode === 'sign_up' ? 'Create account' : 'Sign in'}</Button>
+					</form>
 				</div>
-			</ScrollArea>
+			{:else}
+				<ScrollArea class="min-h-0 flex-1 rounded-md border">
+					<div bind:this={logContainer} class="space-y-2 p-3">
+						{#if messages.length === 0}
+							<p class="text-sm text-muted-foreground">No messages yet.</p>
+						{:else}
+							<ul class="space-y-2">
+								{#each messages as msg, i (i)}
+									{#if msg.role === 'user'}
+										<li
+											class="rounded-lg border-2 border-sky-500/35 bg-sky-500/[0.14] px-3 py-2 text-sm text-foreground dark:border-sky-400/30 dark:bg-sky-400/[0.1]"
+										>
+											<p class="whitespace-pre-wrap break-words">
+												<span class="font-semibold text-foreground">{msg.displayName}:</span>
+												{' '}
+												<span class="text-foreground/85">{msg.text}</span>
+											</p>
+										</li>
+									{:else}
+										<li
+											class="rounded-lg border-2 border-violet-500/35 bg-violet-500/[0.12] px-3 py-2 text-sm text-foreground dark:border-violet-400/30 dark:bg-violet-400/[0.1]"
+										>
+											<div
+												class="prose prose-sm max-w-none text-foreground dark:prose-invert prose-headings:mt-3 prose-headings:mb-2 prose-p:my-2 first:prose-p:mt-0 last:prose-p:mb-0 prose-pre:my-2 prose-strong:font-semibold prose-strong:text-foreground"
+											>
+												<!-- eslint-disable-next-line svelte/no-at-html-tags -- DOMPurify sanitizes LLM HTML -->
+												{@html renderAssistantBubble(msg.text, msg.assistantName ?? 'assistant')}
+											</div>
+										</li>
+									{/if}
+								{/each}
+							</ul>
+						{/if}
+					</div>
+				</ScrollArea>
 
-			<form class="flex gap-2" onsubmit={handleSubmit}>
-				<Input
-					type="text"
-					placeholder="Type a message..."
-					bind:value={messageInput}
-					disabled={status !== 'connected' || awaitingAi}
-				/>
-				{#if awaitingAi}
-					<Button
-						type="button"
-						disabled={status !== 'connected'}
-						on:click={stopMessage}
-						aria-label="Stop"
-					>
-						<Square class="size-4" fill="currentColor" stroke="none" />
-					</Button>
-				{:else}
-					<Button
-						type="submit"
-						disabled={status !== 'connected' || !messageInput.trim()}
-						aria-label="Send"
-					>
-						<SendHorizontal class="size-4" />
-					</Button>
-				{/if}
-			</form>
+				<form class="flex gap-2" onsubmit={handleSubmit}>
+					<Input
+						type="text"
+						placeholder="Type a message..."
+						bind:value={messageInput}
+						disabled={awaitingAi}
+					/>
+					{#if awaitingAi}
+						<Button type="button" onclick={stopMessage} aria-label="Stop">
+							<Square class="size-4" fill="currentColor" stroke="none" />
+						</Button>
+					{:else}
+						<Button type="submit" disabled={!messageInput.trim() || awaitingAi} aria-label="Send">
+							<SendHorizontal class="size-4" />
+						</Button>
+					{/if}
+				</form>
+			{/if}
 		</CardContent>
 	</Card>
 </main>
