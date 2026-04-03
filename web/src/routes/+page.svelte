@@ -254,7 +254,7 @@
 	<Card class="h-[80vh] w-full">
 		<CardHeader class="flex flex-row items-center justify-between space-y-0">
 			<div class="space-y-1">
-				<CardTitle>Token Soup</CardTitle>
+				<CardTitle class="text-primary">Token Soup</CardTitle>
 				<CardDescription>What do I get into today?</CardDescription>
 			</div>
 			<div class="flex items-center gap-2">
@@ -341,7 +341,7 @@
 								{#each messages as msg, i (i)}
 									{#if msg.role === 'user'}
 										<li
-											class="rounded-lg border-2 border-sky-500/35 bg-sky-500/[0.14] px-3 py-2 text-sm text-foreground dark:border-sky-400/30 dark:bg-sky-400/[0.1]"
+											class="rounded-lg border-2 border-bubble-user-border bg-bubble-user px-3 py-2 text-sm text-foreground"
 										>
 											<p class="whitespace-pre-wrap break-words">
 												<span class="font-semibold text-foreground">{msg.displayName}:</span>
@@ -351,7 +351,7 @@
 										</li>
 									{:else}
 										<li
-											class="rounded-lg border-2 border-violet-500/35 bg-violet-500/[0.12] px-3 py-2 text-sm text-foreground dark:border-violet-400/30 dark:bg-violet-400/[0.1]"
+											class="rounded-lg border-2 border-bubble-assistant-border bg-bubble-assistant px-3 py-2 text-sm text-foreground"
 										>
 											<div
 												class="prose prose-sm max-w-none text-foreground dark:prose-invert prose-headings:mt-3 prose-headings:mb-2 prose-p:my-2 first:prose-p:mt-0 last:prose-p:mb-0 prose-pre:my-2 prose-strong:font-semibold prose-strong:text-foreground"
