@@ -272,24 +272,61 @@ html.dark {
 	}
 }
 
-/* Ephemeral “thinking” reasoning preview: gentle brightness pulse (respect reduced motion). */
-@keyframes reasoning-brightness-pulse {
+/* Collapsed “Thinking…” chip: stronger contrast + faster pulse (respect reduced motion). */
+@keyframes thinking-pulse-strong {
 	0%,
 	100% {
-		opacity: 0.72;
+		border-color: color-mix(in oklch, var(--primary) 42%, var(--border));
+		background: color-mix(in oklch, var(--primary) 14%, var(--bubble-assistant));
+		box-shadow: 0 0 0 0 color-mix(in oklch, var(--primary) 18%, transparent);
 	}
 	50% {
+		border-color: color-mix(in oklch, var(--primary) 78%, var(--border));
+		background: color-mix(in oklch, var(--primary) 28%, var(--bubble-assistant));
+		box-shadow: 0 0 14px 0 color-mix(in oklch, var(--primary) 32%, transparent);
+	}
+}
+
+.thinking-pulse-bubble {
+	animation: thinking-pulse-strong 0.85s ease-in-out infinite;
+}
+
+@keyframes thinking-dot-bounce {
+	0%,
+	70%,
+	100% {
+		opacity: 0.2;
+	}
+	35% {
 		opacity: 1;
 	}
 }
 
-.reasoning-bubble {
-	animation: reasoning-brightness-pulse 2.2s ease-in-out infinite;
+.thinking-dots span {
+	display: inline;
+	animation: thinking-dot-bounce 1s ease-in-out infinite;
+}
+
+.thinking-dots span:nth-child(1) {
+	animation-delay: 0ms;
+}
+.thinking-dots span:nth-child(2) {
+	animation-delay: 0.15s;
+}
+.thinking-dots span:nth-child(3) {
+	animation-delay: 0.3s;
 }
 
 @media (prefers-reduced-motion: reduce) {
-	.reasoning-bubble {
+	.thinking-pulse-bubble {
 		animation: none;
-		opacity: 0.88;
+		border-color: color-mix(in oklch, var(--primary) 55%, var(--border));
+		background: color-mix(in oklch, var(--primary) 18%, var(--bubble-assistant));
+		box-shadow: none;
+	}
+
+	.thinking-dots span {
+		animation: none;
+		opacity: 0.85;
 	}
 }

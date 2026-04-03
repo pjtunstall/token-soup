@@ -47,10 +47,26 @@
 	let activeAiJobId = $state<string>('');
 	let logContainer = $state<HTMLDivElement | null>(null);
 	let aiBubbleIndexByJobId: Record<string, number> = {};
+	/** Per-message index: expanded reasoning panel (click-to-reveal). */
+	let reasoningExpandedByIndex = $state<Record<number, boolean>>({});
 	let scrollRaf: number | null = null;
 	let abortController: AbortController | null = null;
 
 	const supabase = getSupabase();
+
+	function showThinkingRow(i: number, msg: ChatBubble): boolean {
+		if (msg.role !== 'assistant') return false;
+		const activeIdx =
+			activeAiJobId !== '' ? aiBubbleIndexByJobId[activeAiJobId] : undefined;
+		const streamingHere = awaitingAi && activeIdx === i;
+		const hasReasoning = !!msg.reasoningText?.trim();
+		return streamingHere || hasReasoning;
+	}
+
+	function toggleReasoningExpanded(i: number) {
+		const next = !reasoningExpandedByIndex[i];
+		reasoningExpandedByIndex = { ...reasoningExpandedByIndex, [i]: next };
+	}
 
 	function getDisplayName(s: Session | null): string {
 		if (!s?.user) return 'You';
@@ -236,6 +252,7 @@
 		await supabase.auth.signOut();
 		messages = [];
 		aiBubbleIndexByJobId = {};
+		reasoningExpandedByIndex = {};
 	}
 
 	onMount(() => {
@@ -412,16 +429,46 @@
 										<li
 											class="rounded-lg border-2 border-bubble-assistant-border bg-bubble-assistant px-3 py-2 text-sm text-foreground"
 										>
-											{#if msg.reasoningText?.trim()}
-												<div
-													class="reasoning-bubble mb-2 rounded-md border border-bubble-assistant-border/50 bg-bubble-assistant/80 px-2 py-1.5"
-												>
-													<p
-														class="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-muted-foreground/80"
+											{#if showThinkingRow(i, msg)}
+												{#if !reasoningExpandedByIndex[i]}
+													<button
+														type="button"
+														class="thinking-pulse-bubble mb-2 inline-flex max-w-full cursor-pointer items-baseline gap-0 rounded-lg border-2 px-3 py-2 text-left text-sm font-medium text-foreground shadow-sm transition-colors hover:brightness-105 focus-visible:outline focus-visible:ring-2 focus-visible:ring-ring"
+														onclick={() => toggleReasoningExpanded(i)}
+														aria-expanded="false"
+														aria-label="Thinking in progress. Click to show model reasoning."
 													>
-														{msg.reasoningText}
-													</p>
-												</div>
+														<span>Thinking</span><span class="thinking-dots" aria-hidden="true"
+															><span>.</span><span>.</span><span>.</span></span
+														>
+													</button>
+												{:else}
+													<div
+														class="reasoning-expanded-panel mb-2 overflow-hidden rounded-lg border-2 border-primary/35 bg-card/90 text-left shadow-md"
+													>
+														<div
+															class="flex items-center justify-between gap-2 border-b border-border/60 bg-primary/8 px-3 py-1.5"
+														>
+															<span class="text-xs font-medium text-foreground/90">Reasoning</span>
+															<button
+																type="button"
+																class="text-xs font-medium text-primary underline-offset-4 hover:underline"
+																onclick={() => toggleReasoningExpanded(i)}
+																aria-expanded="true"
+																aria-label="Hide reasoning"
+															>
+																Hide
+															</button>
+														</div>
+														<p
+															class="max-h-64 overflow-y-auto whitespace-pre-wrap break-words px-3 py-2 font-mono text-xs leading-relaxed text-muted-foreground"
+														>
+															{msg.reasoningText?.trim()
+																? msg.reasoningText
+																: 'Waiting for reasoning…'}
+														</p>
+													</div>
+												{/if}
 											{/if}
 											<div
 												class="prose prose-sm max-w-none text-foreground dark:prose-invert prose-headings:mt-3 prose-headings:mb-2 prose-p:my-2 first:prose-p:mt-0 last:prose-p:mb-0 prose-pre:my-2 prose-strong:font-semibold prose-strong:text-foreground"
