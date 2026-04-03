@@ -4,7 +4,7 @@ export const THEME_STORAGE_KEY = 'token-soup-theme';
 export type ThemePreference = 'light' | 'dark';
 
 export function themePreferenceFromDOM(): ThemePreference {
-	if (typeof document === 'undefined') return 'light';
+	if (typeof document === 'undefined') return 'dark';
 	return document.documentElement.classList.contains('dark') ? 'dark' : 'light';
 }
 
