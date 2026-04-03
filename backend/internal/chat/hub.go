@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"log"
 	"strings"
+
+	"github.com/lestrrat-go/jwx/v2/jwk"
 )
 
 // userInbound is a message from one websocket client.
@@ -56,9 +58,12 @@ type Hub struct {
 	unregister chan *Client
 
 	nextJobID uint64
+
+	cache *jwk.Cache
+	jwksURL string
 }
 
-func NewHub() *Hub {
+func NewHub(cache *jwk.Cache, jwksURL string) *Hub {
 	return &Hub{
 		inbound:    make(chan userInbound),
 		aiJobs:     make(chan aiJob, 64),
@@ -68,6 +73,8 @@ func NewHub() *Hub {
 		unregister: make(chan *Client),
 		clients:    make(map[*Client]struct{}),
 		nextJobID:  0,
+		cache: cache,
+		jwksURL: jwksURL,
 	}
 }
 
