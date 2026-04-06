@@ -19,11 +19,6 @@ type chatPostBody struct {
 // ChatHandler handles POST /api/chat with SSE response and Supabase JWT auth.
 func ChatHandler(store *HistoryStore, cache *jwk.Cache, jwksURL string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-
 		userID, err := AuthUserID(r.Context(), cache, jwksURL, r.Header.Get("Authorization"))
 		if err != nil {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -36,7 +31,7 @@ func ChatHandler(store *HistoryStore, cache *jwk.Cache, jwksURL string) http.Han
 			return
 		}
 
-		prompt := store.AppendUserMessage(userID, body.Message)
+		prompt := store.Append(userID, body.Message, true)
 		if prompt == "" {
 			http.Error(w, "empty message", http.StatusBadRequest)
 			return
@@ -69,7 +64,7 @@ func ChatHandler(store *HistoryStore, cache *jwk.Cache, jwksURL string) http.Han
 		})
 
 		if !cancelled && strings.TrimSpace(assistantText) != "" {
-			store.AppendAssistant(userID, assistantText)
+			store.Append(userID, assistantText, false)
 		}
 	}
 }

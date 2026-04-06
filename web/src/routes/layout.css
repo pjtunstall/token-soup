@@ -272,23 +272,21 @@ html.dark {
 	}
 }
 
-/* Collapsed “Thinking…” chip: stronger contrast + faster pulse (respect reduced motion). */
-@keyframes thinking-pulse-strong {
+/* Assistant model name while waiting for first token: same cadence as former thinking chip. */
+@keyframes assistant-model-name-pulse {
 	0%,
 	100% {
-		border-color: color-mix(in oklch, var(--primary) 42%, var(--border));
-		background: color-mix(in oklch, var(--primary) 14%, var(--bubble-assistant));
-		box-shadow: 0 0 0 0 color-mix(in oklch, var(--primary) 18%, transparent);
+		opacity: 0.58;
+		color: color-mix(in oklch, var(--foreground) 55%, var(--primary));
 	}
 	50% {
-		border-color: color-mix(in oklch, var(--primary) 78%, var(--border));
-		background: color-mix(in oklch, var(--primary) 28%, var(--bubble-assistant));
-		box-shadow: 0 0 14px 0 color-mix(in oklch, var(--primary) 32%, transparent);
+		opacity: 1;
+		color: color-mix(in oklch, var(--foreground) 88%, var(--primary));
 	}
 }
 
-.thinking-pulse-bubble {
-	animation: thinking-pulse-strong 0.85s ease-in-out infinite;
+.assistant-model-name-pulse {
+	animation: assistant-model-name-pulse 0.85s ease-in-out infinite;
 }
 
 @keyframes thinking-dot-bounce {
@@ -318,11 +316,10 @@ html.dark {
 }
 
 @media (prefers-reduced-motion: reduce) {
-	.thinking-pulse-bubble {
+	.assistant-model-name-pulse {
 		animation: none;
-		border-color: color-mix(in oklch, var(--primary) 55%, var(--border));
-		background: color-mix(in oklch, var(--primary) 18%, var(--bubble-assistant));
-		box-shadow: none;
+		opacity: 1;
+		color: color-mix(in oklch, var(--foreground) 88%, var(--primary));
 	}
 
 	.thinking-dots span {

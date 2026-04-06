@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onDestroy, onMount, tick } from 'svelte';
-	import { renderAssistantBubble, renderMarkdown } from '$lib/markdown';
+	import { renderMarkdown, splitAssistantLabelPrefix } from '$lib/markdown';
 	import { postChat, type AIStreamEvent } from '$lib/chat';
 	import { getSupabase } from '$lib/supabase';
 	import type { Session } from '@supabase/supabase-js';
@@ -67,9 +67,18 @@
 		return { streamingHere, hasReasoning };
 	}
 
-	/** Pulsing “Thinking…” only while this assistant reply is still streaming. */
-	function showThinkingPulse(i: number, msg: ChatBubble): boolean {
-		return assistantStreamContext(i, msg).streamingHere;
+	function assistantAnswerHasContent(msg: ChatBubble): boolean {
+		if (msg.role !== 'assistant') return false;
+		const split = splitAssistantLabelPrefix(msg.text, msg.assistantName ?? 'assistant');
+		if (!split) return msg.text.trim().length > 0;
+		return split.rest.trim() !== '';
+	}
+
+	/** Model label pulses + ellipsis until the first answer tokens arrive. */
+	function showAssistantModelThinking(i: number, msg: ChatBubble): boolean {
+		if (msg.role !== 'assistant') return false;
+		if (!assistantStreamContext(i, msg).streamingHere) return false;
+		return !assistantAnswerHasContent(msg);
 	}
 
 	/** Separate control to open reasoning (while streaming or after stop, if any). */
@@ -444,35 +453,33 @@
 										<li
 											class="rounded-lg border-2 border-bubble-user-border bg-bubble-user px-3 py-2 text-sm text-foreground"
 										>
-											<p class="whitespace-pre-wrap break-words">
-												<span class="font-semibold text-foreground">{msg.displayName}:</span>
-												{' '}
-												<span class="text-foreground/85">{msg.text}</span>
-											</p>
+											<div class="flex flex-col gap-1.5">
+												<div class="font-semibold text-foreground">{msg.displayName}</div>
+												<div
+													class="prose prose-sm max-w-none text-foreground dark:prose-invert prose-headings:mt-3 prose-headings:mb-2 prose-p:my-2 first:prose-p:mt-0 last:prose-p:mb-0 prose-pre:my-2 prose-strong:font-semibold prose-strong:text-foreground prose-headings:first:mt-0"
+												>
+													<!-- eslint-disable-next-line svelte/no-at-html-tags -- DOMPurify sanitizes -->
+													{@html renderMarkdown(msg.text)}
+												</div>
+											</div>
 										</li>
 									{:else}
+										{@const prefix = splitAssistantLabelPrefix(
+											msg.text,
+											msg.assistantName ?? 'assistant'
+										)}
 										<li
 											class="rounded-lg border-2 border-bubble-assistant-border bg-bubble-assistant px-3 py-2 text-sm text-foreground"
 										>
-											{#if showThinkingPulse(i, msg) || showReasoningControl(i, msg)}
+											{#if showReasoningControl(i, msg)}
 												<div class="mb-2 flex flex-col gap-2">
-													{#if showThinkingPulse(i, msg)}
+													{#if !reasoningExpandedByIndex[i]}
 														<div
-															class="thinking-pulse-bubble inline-flex w-fit max-w-full items-baseline gap-0 rounded-lg border-2 px-3 py-2 text-sm font-medium text-foreground shadow-sm"
-															role="status"
-															aria-live="polite"
-															aria-label="Assistant is thinking"
+															class="reasoning-panel overflow-hidden rounded-md border border-border/55 bg-background/40 text-left shadow-sm"
 														>
-															<span>Thinking</span><span class="thinking-dots" aria-hidden="true"
-																><span>.</span><span>.</span><span>.</span></span
-															>
-														</div>
-													{/if}
-													{#if showReasoningControl(i, msg)}
-														{#if !reasoningExpandedByIndex[i]}
 															<button
 																type="button"
-																class="reasoning-disclosure flex w-full max-w-full items-center justify-start gap-0.5 rounded-md py-1 pl-0 pr-1 text-left transition-colors hover:text-foreground focus-visible:outline focus-visible:ring-2 focus-visible:ring-ring"
+																class="reasoning-disclosure flex w-full items-center justify-start gap-0.5 border-b border-transparent px-2 py-1.5 text-left transition-colors hover:bg-muted/30 focus-visible:outline focus-visible:ring-2 focus-visible:ring-ring"
 																onclick={() => toggleReasoningExpanded(i)}
 																aria-expanded="false"
 																aria-label="Show reasoning"
@@ -487,44 +494,73 @@
 																	aria-hidden="true"
 																/>
 															</button>
-														{:else}
-															<div
-																class="reasoning-expanded-panel overflow-hidden rounded-md border border-border/55 bg-background/40 text-left shadow-sm"
+														</div>
+													{:else}
+														<div
+															class="reasoning-panel overflow-hidden rounded-md border border-border/55 bg-background/40 text-left shadow-sm"
+														>
+															<button
+																type="button"
+																class="reasoning-disclosure flex w-full items-center justify-start gap-0.5 border-b border-border/50 px-2 py-1.5 text-left transition-colors hover:bg-muted/30 focus-visible:outline focus-visible:ring-2 focus-visible:ring-ring"
+																onclick={() => toggleReasoningExpanded(i)}
+																aria-expanded="true"
+																aria-label="Hide reasoning"
 															>
-																<button
-																	type="button"
-																	class="reasoning-disclosure flex w-full items-center justify-start gap-0.5 border-b border-border/50 px-2 py-1.5 text-left transition-colors hover:bg-muted/30 focus-visible:outline focus-visible:ring-2 focus-visible:ring-ring"
-																	onclick={() => toggleReasoningExpanded(i)}
-																	aria-expanded="true"
-																	aria-label="Hide reasoning"
+																<span
+																	class="text-xs font-medium tracking-normal text-muted-foreground"
+																	>Reasoning</span
 																>
-																	<span
-																		class="text-xs font-medium tracking-normal text-muted-foreground"
-																		>Reasoning</span
-																	>
-																	<ChevronUp
-																		class="size-3.5 shrink-0 text-muted-foreground/75"
-																		strokeWidth={2}
-																		aria-hidden="true"
-																	/>
-																</button>
-																<p
-																	class="max-h-64 overflow-y-auto whitespace-pre-wrap break-words px-2 py-2 font-mono text-xs leading-relaxed text-muted-foreground"
-																>
-																	{msg.reasoningText?.trim()
-																		? msg.reasoningText
-																		: 'Waiting for reasoning…'}
-																</p>
-															</div>
-														{/if}
+																<ChevronUp
+																	class="size-3.5 shrink-0 text-muted-foreground/75"
+																	strokeWidth={2}
+																	aria-hidden="true"
+																/>
+															</button>
+															<p
+																class="max-h-64 overflow-y-auto whitespace-pre-wrap break-words px-2 py-2 font-mono text-xs leading-relaxed text-muted-foreground"
+															>
+																{msg.reasoningText?.trim()
+																	? msg.reasoningText
+																	: 'Waiting for reasoning…'}
+															</p>
+														</div>
 													{/if}
 												</div>
 											{/if}
-											<div
-												class="prose prose-sm max-w-none text-foreground dark:prose-invert prose-headings:mt-3 prose-headings:mb-2 prose-p:my-2 first:prose-p:mt-0 last:prose-p:mb-0 prose-pre:my-2 prose-strong:font-semibold prose-strong:text-foreground"
-											>
-												<!-- eslint-disable-next-line svelte/no-at-html-tags -- DOMPurify sanitizes LLM HTML -->
-												{@html renderAssistantBubble(msg.text, msg.assistantName ?? 'assistant')}
+											<div class="flex flex-col gap-1.5">
+												{#if prefix}
+													<div
+														class="flex flex-wrap items-baseline gap-0.5 text-sm font-semibold text-foreground"
+														role={showAssistantModelThinking(i, msg) ? 'status' : undefined}
+														aria-live={showAssistantModelThinking(i, msg) ? 'polite' : undefined}
+													>
+														<span
+															class={showAssistantModelThinking(i, msg)
+																? 'assistant-model-name-pulse'
+																: ''}>{prefix.label}</span
+														>
+														{#if showAssistantModelThinking(i, msg)}
+															<span class="thinking-dots text-muted-foreground" aria-hidden="true"
+																><span>.</span><span>.</span><span>.</span></span
+															>
+														{/if}
+													</div>
+													{#if prefix.rest.trim()}
+														<div
+															class="prose prose-sm max-w-none text-foreground dark:prose-invert prose-headings:mt-3 prose-headings:mb-2 prose-p:my-2 first:prose-p:mt-0 last:prose-p:mb-0 prose-pre:my-2 prose-strong:font-semibold prose-strong:text-foreground prose-headings:first:mt-0"
+														>
+															<!-- eslint-disable-next-line svelte/no-at-html-tags -- DOMPurify sanitizes LLM HTML -->
+															{@html renderMarkdown(prefix.rest)}
+														</div>
+													{/if}
+												{:else}
+													<div
+														class="prose prose-sm max-w-none text-foreground dark:prose-invert prose-headings:mt-3 prose-headings:mb-2 prose-p:my-2 first:prose-p:mt-0 last:prose-p:mb-0 prose-pre:my-2 prose-strong:font-semibold prose-strong:text-foreground prose-headings:first:mt-0"
+													>
+														<!-- eslint-disable-next-line svelte/no-at-html-tags -- DOMPurify sanitizes LLM HTML -->
+														{@html renderMarkdown(msg.text)}
+													</div>
+												{/if}
 											</div>
 										</li>
 									{/if}

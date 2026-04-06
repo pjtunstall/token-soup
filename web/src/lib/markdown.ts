@@ -7,29 +7,21 @@ export function renderMarkdown(src: string): string {
 	return DOMPurify.sanitize(html);
 }
 
-function escapeHtml(s: string): string {
-	return s
-		.replace(/&/g, '&amp;')
-		.replace(/</g, '&lt;')
-		.replace(/>/g, '&gt;')
-		.replace(/"/g, '&quot;');
-}
-
 function escapeRegExp(s: string): string {
 	return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-/**
- * Assistant bubbles: bold `name:` (from OpenRouter model id) like user display names; rest is inline markdown.
- */
-export function renderAssistantBubble(fullText: string, assistantName: string): string {
+/** Split `ModelName: …rest` when the label matches (case-insensitive). */
+export function splitAssistantLabelPrefix(
+	fullText: string,
+	assistantName: string
+): { label: string; rest: string } | null {
 	const label = assistantName.trim() || 'assistant';
 	const re = new RegExp(`^${escapeRegExp(label)}:\\s*`, 'i');
 	if (!re.test(fullText)) {
-		return renderMarkdown(fullText);
+		return null;
 	}
 	const rest = fullText.replace(re, '');
-	const body = marked.parseInline(rest, { async: false });
-	const html = `<p><strong>${escapeHtml(label)}:</strong> ${body}</p>`;
-	return DOMPurify.sanitize(html);
+	return { label, rest };
 }
+

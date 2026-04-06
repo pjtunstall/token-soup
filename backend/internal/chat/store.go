@@ -11,7 +11,9 @@ type HistoryStore struct {
 	byUser map[string][]string
 }
 
-func (s *HistoryStore) AppendUserMessage(userID, text string) string {
+// Append adds a transcript line for userID. fromUser selects "User: " vs "Assistant: ".
+// For user messages, returns the full transcript; assistant lines return "".
+func (s *HistoryStore) Append(userID, text string, fromUser bool) string {
 	trimmed := strings.TrimSpace(text)
 	if trimmed == "" {
 		return ""
@@ -21,22 +23,14 @@ func (s *HistoryStore) AppendUserMessage(userID, text string) string {
 	if s.byUser == nil {
 		s.byUser = make(map[string][]string)
 	}
-	h := s.byUser[userID]
-	h = append(h, "User: "+trimmed)
+	prefix := "Assistant: "
+	if fromUser {
+		prefix = "User: "
+	}
+	h := append(s.byUser[userID], prefix+trimmed)
 	s.byUser[userID] = h
-	return strings.Join(h, "\n\n")
-}
-
-// AppendAssistant records a completed assistant reply for the transcript.
-func (s *HistoryStore) AppendAssistant(userID, text string) {
-	t := strings.TrimSpace(text)
-	if t == "" {
-		return
+	if fromUser {
+		return strings.Join(h, "\n\n")
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.byUser == nil {
-		s.byUser = make(map[string][]string)
-	}
-	s.byUser[userID] = append(s.byUser[userID], "Assistant: "+t)
+	return ""
 }
