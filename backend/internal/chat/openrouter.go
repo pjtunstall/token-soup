@@ -313,6 +313,93 @@ func (s *openRouterStreamState) ensureDeltaStreamPrefix() {
 	}
 }
 
+// startAIBubble emits ai_start once when the assistant message bubble begins.
+func (s *openRouterStreamState) startAIBubble() {
+	if s.aiBubbleStarted {
+		return
+	}
+	emitAI(s.emit, s.jobID, s.assistantName, AIEvent{
+		Type: "ai_start",
+		Text: s.assistantName + ": ",
+	})
+	s.aiBubbleStarted = true
+}
+
+// maybeStartBubbleForChunk starts the bubble when this SSE chunk carries model info or choices,
+// so the UI can show the header before the first token.
+func (s *openRouterStreamState) maybeStartBubbleForChunk(chunk *openRouterStreamResponse) {
+	if len(chunk.Choices) == 0 && strings.TrimSpace(chunk.Model) == "" {
+		return
+	}
+	s.startAIBubble()
+}
+
+func (s *openRouterStreamState) applyChunkMetadata(chunk *openRouterStreamResponse) {
+	if chunk.Model != "" {
+		s.assistantName = formatModelDisplayName(chunk.Model)
+	}
+	if chunk.Usage.hasAny() {
+		s.latestUsage = chunk.Usage
+	}
+}
+
+func (s *openRouterStreamState) unmarshalSSEData(data []byte) (openRouterStreamResponse, error) {
+	var chunk openRouterStreamResponse
+	if err := json.Unmarshal(data, &chunk); err != nil {
+		emitAI(s.emit, s.jobID, s.assistantName, AIEvent{
+			Type: "ai_replace",
+			Text: s.assistantName + ": [invalid response]",
+		})
+		return chunk, err
+	}
+	return chunk, nil
+}
+
+func (s *openRouterStreamState) emitReasoningDelta(reasoningPart string) {
+	if reasoningPart == "" {
+		return
+	}
+	if s.logDeltaStream {
+		s.ensureDeltaStreamPrefix()
+		_, _ = fmt.Fprint(os.Stdout, reasoningPart)
+	} else {
+		log.Printf("openrouter: job=%d reasoning_delta=%q", s.jobID, strings.TrimSpace(reasoningPart))
+	}
+	emitAI(s.emit, s.jobID, s.assistantName, AIEvent{
+		Type: "ai_reasoning_delta",
+		Text: reasoningPart,
+	})
+}
+
+// processContentDelta handles one content delta: leading-whitespace trim for the first visible
+// token, optional delta logging, buffer append, and ai_delta emission.
+func (s *openRouterStreamState) processContentDelta(deltaText string) {
+	if deltaText == "" {
+		return
+	}
+	s.startAIBubble()
+	if !s.sentFirstNonWhitespace {
+		deltaText = strings.TrimLeft(deltaText, " \n\t\r")
+		if deltaText == "" {
+			return
+		}
+		s.sentFirstNonWhitespace = true
+	}
+	if !s.firstDeltaLogged {
+		s.firstDeltaLogged = true
+		log.Printf("openrouter: job=%d first_delta_after=%s", s.jobID, time.Since(s.started).Truncate(time.Millisecond))
+	}
+	if s.logDeltaStream {
+		s.ensureDeltaStreamPrefix()
+		_, _ = fmt.Fprint(os.Stdout, deltaText)
+	}
+	s.buf.WriteString(deltaText)
+	emitAI(s.emit, s.jobID, s.assistantName, AIEvent{
+		Type: "ai_delta",
+		Text: deltaText,
+	})
+}
+
 func (s *openRouterStreamState) onSSEData(data []byte) error {
 	select {
 	case <-s.ctx.Done():
@@ -325,83 +412,20 @@ func (s *openRouterStreamState) onSSEData(data []byte) error {
 		return nil
 	}
 
-	var chunk openRouterStreamResponse
-	if err := json.Unmarshal(data, &chunk); err != nil {
-		emitAI(s.emit, s.jobID, s.assistantName, AIEvent{
-			Type: "ai_replace",
-			Text: s.assistantName + ": [invalid response]",
-		})
+	chunk, err := s.unmarshalSSEData(data)
+	if err != nil {
 		return err
 	}
-	if chunk.Model != "" {
-		s.assistantName = formatModelDisplayName(chunk.Model)
-	}
-	if chunk.Usage.hasAny() {
-		s.latestUsage = chunk.Usage
-	}
-
-	if !s.aiBubbleStarted && (len(chunk.Choices) > 0 || strings.TrimSpace(chunk.Model) != "") {
-		emitAI(s.emit, s.jobID, s.assistantName, AIEvent{
-			Type: "ai_start",
-			Text: s.assistantName + ": ",
-		})
-		s.aiBubbleStarted = true
-	}
+	s.applyChunkMetadata(&chunk)
+	s.maybeStartBubbleForChunk(&chunk)
 
 	for _, choice := range chunk.Choices {
 		reasoningPart := choice.Delta.Reasoning
 		if reasoningPart == "" {
 			reasoningPart = choice.Delta.ReasoningContent
 		}
-		if reasoningPart != "" {
-			if s.logDeltaStream {
-				s.ensureDeltaStreamPrefix()
-				_, _ = fmt.Fprint(os.Stdout, reasoningPart)
-			} else {
-				log.Printf("openrouter: job=%d reasoning_delta=%q", s.jobID, strings.TrimSpace(reasoningPart))
-			}
-			emitAI(s.emit, s.jobID, s.assistantName, AIEvent{
-				Type: "ai_reasoning_delta",
-				Text: reasoningPart,
-			})
-		}
-
-		deltaText := choice.Delta.Content
-		if deltaText == "" {
-			continue
-		}
-
-		if !s.aiBubbleStarted {
-			emitAI(s.emit, s.jobID, s.assistantName, AIEvent{
-				Type: "ai_start",
-				Text: s.assistantName + ": ",
-			})
-			s.aiBubbleStarted = true
-		}
-
-		if !s.sentFirstNonWhitespace {
-			deltaText = strings.TrimLeft(deltaText, " \n\t\r")
-			if deltaText == "" {
-				continue
-			}
-			s.sentFirstNonWhitespace = true
-		}
-
-		if !s.firstDeltaLogged {
-			s.firstDeltaLogged = true
-			log.Printf("openrouter: job=%d first_delta_after=%s", s.jobID, time.Since(s.started).Truncate(time.Millisecond))
-		}
-
-		if s.logDeltaStream {
-			s.ensureDeltaStreamPrefix()
-			_, _ = fmt.Fprint(os.Stdout, deltaText)
-		}
-
-		s.buf.WriteString(deltaText)
-		emitAI(s.emit, s.jobID, s.assistantName, AIEvent{
-			Type: "ai_delta",
-			Text: deltaText,
-		})
+		s.emitReasoningDelta(reasoningPart)
+		s.processContentDelta(choice.Delta.Content)
 	}
 	return nil
 }
@@ -427,65 +451,45 @@ func handleOpenRouterStreamError(
 	return false
 }
 
-// StreamOpenRouter streams one completion to emit and returns the full assistant text (if any).
-// When ctx is cancelled (client abort/stop), upstream OpenRouter consumption stops and cancelled is true.
-func StreamOpenRouter(ctx context.Context, jobID uint64, userPrompt string, emit func(AIEvent)) (assistantText string, cancelled bool) {
-	assistantName := formatModelDisplayName(openRouterModel)
-
-	apiKey := os.Getenv("OPENROUTER_API_KEY")
+// openRouterStreamPrepare validates env and prompt, builds the JSON body. ok is false when the
+// caller should return ("", false) immediately (emit may have been called for missing API key).
+func openRouterStreamPrepare(jobID uint64, userPrompt string, emit func(AIEvent)) (assistantName, apiKey string, jsonBody []byte, ok bool) {
+	assistantName = formatModelDisplayName(openRouterModel)
+	apiKey = os.Getenv("OPENROUTER_API_KEY")
 	if apiKey == "" {
 		log.Println("OPENROUTER_API_KEY is not set; skipping OpenRouter call")
 		emitOpenRouterNotConfigured(emit, jobID, assistantName)
-		return "", false
+		return "", "", nil, false
 	}
-
 	if strings.TrimSpace(userPrompt) == "" {
-		return "", false
+		return "", "", nil, false
 	}
-
-	started := time.Now()
-	log.Printf("openrouter: job=%d prompt_bytes=%d", jobID, len(userPrompt))
-
 	requestBody := newOpenRouterRequest(userPrompt)
-	jsonBody, err := json.Marshal(requestBody)
+	var err error
+	jsonBody, err = json.Marshal(requestBody)
 	if err != nil {
 		log.Printf("failed to marshal OpenRouter request: %v", err)
-		return "", false
+		return "", "", nil, false
 	}
+	return assistantName, apiKey, jsonBody, true
+}
 
+func openRouterHTTPPost(ctx context.Context, jsonBody []byte, apiKey string) (*http.Response, error) {
 	req, err := newOpenRouterHTTPRequest(ctx, jsonBody, apiKey)
 	if err != nil {
 		log.Printf("failed to create OpenRouter request: %v", err)
-		return "", false
+		return nil, err
 	}
+	return openRouterHTTPClient.Do(req)
+}
 
-	resp, err := openRouterHTTPClient.Do(req)
-	if err != nil {
-		return "", handleOpenRouterRequestError(ctx, jobID, err, emit, assistantName)
-	}
-	defer resp.Body.Close()
-
-	stopClose := closeBodyOnCancel(ctx, resp.Body)
-	defer stopClose()
-
-	if resp.StatusCode >= 400 {
-		return "", handleOpenRouterHTTPError(ctx, jobID, resp, emit, assistantName)
-	}
-
-	stream := &openRouterStreamState{
-		ctx:            ctx,
-		jobID:          jobID,
-		emit:           emit,
-		started:        started,
-		assistantName:  assistantName,
-		logDeltaStream: openRouterLogDeltaStreamEnabled(),
-	}
-
-	streamErr := parseSSEStream(resp, stream.onSSEData)
-	if streamErr != nil {
-		return "", handleOpenRouterStreamError(stream, streamErr)
-	}
-
+// finishOpenRouterStream runs after SSE parsing succeeds: empty-response handling, usage log, ai_end.
+func finishOpenRouterStream(
+	stream *openRouterStreamState,
+	emit func(AIEvent),
+	jobID uint64,
+	started time.Time,
+) (assistantText string, cancelled bool) {
 	if strings.TrimSpace(stream.buf.String()) == "" {
 		stream.endDeltaStreamLogLine()
 		emitAI(emit, jobID, stream.assistantName, AIEvent{
@@ -514,4 +518,45 @@ func StreamOpenRouter(ctx context.Context, jobID uint64, userPrompt string, emit
 		Type: "ai_end",
 	})
 	return assistantText, false
+}
+
+// StreamOpenRouter streams one completion to emit and returns the full assistant text (if any).
+// When ctx is cancelled (client abort/stop), upstream OpenRouter consumption stops and cancelled is true.
+func StreamOpenRouter(ctx context.Context, jobID uint64, userPrompt string, emit func(AIEvent)) (assistantText string, cancelled bool) {
+	assistantName, apiKey, jsonBody, ok := openRouterStreamPrepare(jobID, userPrompt, emit)
+	if !ok {
+		return "", false
+	}
+
+	started := time.Now()
+	log.Printf("openrouter: job=%d prompt_bytes=%d", jobID, len(userPrompt))
+
+	resp, err := openRouterHTTPPost(ctx, jsonBody, apiKey)
+	if err != nil {
+		return "", handleOpenRouterRequestError(ctx, jobID, err, emit, assistantName)
+	}
+	defer resp.Body.Close()
+
+	stopClose := closeBodyOnCancel(ctx, resp.Body)
+	defer stopClose()
+
+	if resp.StatusCode >= 400 {
+		return "", handleOpenRouterHTTPError(ctx, jobID, resp, emit, assistantName)
+	}
+
+	stream := &openRouterStreamState{
+		ctx:            ctx,
+		jobID:          jobID,
+		emit:           emit,
+		started:        started,
+		assistantName:  assistantName,
+		logDeltaStream: openRouterLogDeltaStreamEnabled(),
+	}
+
+	streamErr := parseSSEStream(resp, stream.onSSEData)
+	if streamErr != nil {
+		return "", handleOpenRouterStreamError(stream, streamErr)
+	}
+
+	return finishOpenRouterStream(stream, emit, jobID, started)
 }
