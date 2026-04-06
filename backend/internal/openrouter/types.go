@@ -1,6 +1,7 @@
 package openrouter
 
 // AIEvent is one JSON object sent on the chat SSE stream (same shape as the old WebSocket payloads).
+// type "chat_title" carries a session title in Text (first turn only); Name is omitted.
 type AIEvent struct {
 	Type  string `json:"type"`
 	JobID uint64 `json:"jobId"`

@@ -4,6 +4,8 @@
 	import {
 		postChat,
 		DEFAULT_ROLE_NAME,
+		normalizeChatTitle,
+		fallbackTitleFromUserMessage,
 		type AIStreamEvent,
 		type ChatMessage
 	} from '$lib/chat';
@@ -48,6 +50,9 @@
 	let reasoningExpandedByIndex = $state<Record<number, boolean>>({});
 	let scrollRaf: number | null = null;
 	let abortController: AbortController | null = null;
+
+	const defaultSessionSubtitle = 'What do I get into today?';
+	let sessionSubtitle = $state(defaultSessionSubtitle);
 
 	const supabase = getSupabase();
 
@@ -243,10 +248,8 @@
 				}
 				return;
 			}
-			default: {
-				pushAssistantBubble(JSON.stringify(parsed), parsed.name);
+			default:
 				return;
-			}
 		}
 	}
 
@@ -293,6 +296,7 @@
 		messages = [];
 		aiBubbleIndexByJobId = {};
 		reasoningExpandedByIndex = {};
+		sessionSubtitle = defaultSessionSubtitle;
 	}
 
 	onMount(() => {
@@ -313,14 +317,24 @@
 
 	async function sendMessage() {
 		if (awaitingAi || !session?.access_token || !messageInput.trim()) return;
+		const wasEmpty = messages.length === 0;
 		const text = messageInput.trim();
 		const who = getDisplayName(session);
 		pushUserBubble(who, text);
 		messageInput = '';
 		awaitingAi = true;
 		abortController = new AbortController();
+		let titleReceivedThisSend = false;
+		function onStreamEvent(parsed: AIStreamEvent) {
+			if (parsed.type === 'chat_title') {
+				titleReceivedThisSend = true;
+				sessionSubtitle = normalizeChatTitle(parsed.text ?? '', text);
+				return;
+			}
+			handleStreamEvent(parsed);
+		}
 		try {
-			await postChat(text, who, session.access_token, abortController.signal, handleStreamEvent);
+			await postChat(text, who, session.access_token, abortController.signal, onStreamEvent);
 		} catch (err) {
 			const name = err instanceof Error ? err.name : '';
 			if (name !== 'AbortError') {
@@ -328,6 +342,9 @@
 				pushAssistantBubble(`Error: ${msg}`, undefined);
 			}
 		} finally {
+			if (wasEmpty && !titleReceivedThisSend) {
+				sessionSubtitle = fallbackTitleFromUserMessage(text);
+			}
 			awaitingAi = false;
 			activeAiJobId = '';
 			abortController = null;
@@ -359,7 +376,7 @@
 		<CardHeader class="flex flex-row items-center justify-between space-y-0">
 			<div class="space-y-1">
 				<CardTitle class="text-primary">Token Soup</CardTitle>
-				<CardDescription>What do I get into today?</CardDescription>
+				<CardDescription>{sessionSubtitle}</CardDescription>
 			</div>
 			<div class="flex items-center gap-2">
 				<Button

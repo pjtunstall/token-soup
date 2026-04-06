@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"sync"
 	"sync/atomic"
 
 	"github.com/lestrrat-go/jwx/v2/jwk"
@@ -66,7 +67,10 @@ func ChatHandler(store *HistoryStore, cache *jwk.Cache, jwksURL string) http.Han
 		jobID := atomic.AddUint64(&chatJobCounter, 1)
 		ctx := r.Context()
 
-		assistantText, canceled := openrouter.StreamOpenRouter(ctx, jobID, openrouter.GuruSystemPrompt(), turns, func(ev openrouter.AIEvent) {
+		var sseMu sync.Mutex
+		emit := func(ev openrouter.AIEvent) {
+			sseMu.Lock()
+			defer sseMu.Unlock()
 			payload, err := json.Marshal(ev)
 			if err != nil {
 				log.Printf("marshal AI event: %v", err)
@@ -75,7 +79,46 @@ func ChatHandler(store *HistoryStore, cache *jwk.Cache, jwksURL string) http.Han
 			if err := WriteSSE(w, flusher, payload); err != nil {
 				log.Printf("sse write: %v", err)
 			}
-		})
+		}
+
+		firstUserText := strings.TrimSpace(body.Message)
+		var wg sync.WaitGroup
+		if len(history) == 1 && firstUserText != "" {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				raw, err := openrouter.GenerateChatTitle(ctx, firstUserText)
+				if err != nil {
+					if ctx.Err() != nil {
+						return
+					}
+					log.Printf("chat title: %v", err)
+					raw = ""
+				}
+				title := NormalizeChatTitle(raw, firstUserText)
+				sseMu.Lock()
+				defer sseMu.Unlock()
+				if ctx.Err() != nil {
+					return
+				}
+				payload, err := json.Marshal(openrouter.AIEvent{
+					Type:  "chat_title",
+					JobID: jobID,
+					Text:  title,
+				})
+				if err != nil {
+					log.Printf("marshal chat_title: %v", err)
+					return
+				}
+				if err := WriteSSE(w, flusher, payload); err != nil {
+					log.Printf("sse write chat_title: %v", err)
+				}
+			}()
+		}
+
+		assistantText, canceled := openrouter.StreamOpenRouter(ctx, jobID, openrouter.GuruSystemPrompt(), turns, emit)
+
+		wg.Wait()
 
 		if !canceled && strings.TrimSpace(assistantText) != "" {
 			store.AppendBot(userID, openrouter.RoleGuruName, openrouter.DefaultModelID(), assistantText, nil)

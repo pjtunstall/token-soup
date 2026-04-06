@@ -31,6 +31,63 @@ export type AIStreamEvent = {
 	name?: string;
 };
 
+/** Matches backend chat.maxTitleRunes (strict display width). */
+export const MAX_TITLE_RUNES = 72;
+
+function firstSentenceEnd(s: string): number {
+	const rs = [...s];
+	for (let i = 0; i < rs.length; i++) {
+		const ch = rs[i];
+		if (ch === '!' || ch === '?') return i + 1;
+		if (ch === '.') {
+			if (i + 1 < rs.length && rs[i + 1] === '.') continue;
+			return i + 1;
+		}
+	}
+	return -1;
+}
+
+export function truncateWithEllipsis(s: string, maxRunes: number): string {
+	const runes = [...s.trim()];
+	if (runes.length <= maxRunes) return runes.join('');
+	if (maxRunes < 4) return '...';
+	return runes.slice(0, maxRunes - 3).join('') + '...';
+}
+
+/** Mirrors backend FallbackTitleFromUserMessage (cancel / offline title). */
+export function fallbackTitleFromUserMessage(msg: string): string {
+	const trimmed = msg.trim();
+	if (!trimmed) return '…';
+	const end = firstSentenceEnd(trimmed);
+	if (end > 0) {
+		let sent = trimmed.slice(0, end).trim();
+		sent = sent.replace(/[.!?]+$/u, '').trim();
+		const sentRunes = [...sent];
+		if (sentRunes.length <= MAX_TITLE_RUNES) return sent;
+		return truncateWithEllipsis(sent, MAX_TITLE_RUNES);
+	}
+	return truncateWithEllipsis(trimmed, MAX_TITLE_RUNES);
+}
+
+/** Mirrors backend NormalizeChatTitle for client-side defense-in-depth. */
+export function normalizeChatTitle(raw: string, firstUserMessage: string): string {
+	let s = raw
+		.trim()
+		.replace(/\r\n/g, '\n')
+		.replace(/\n/g, ' ');
+	s = s.replace(/\s+/g, ' ').trim();
+	while (
+		s.length >= 2 &&
+		(s.startsWith('"') || s.startsWith("'")) &&
+		s.endsWith(s[0]!)
+	) {
+		s = s.slice(1, -1).trim();
+	}
+	s = s.replace(/[.,;:!?]+$/u, '').trim();
+	if (!s) return fallbackTitleFromUserMessage(firstUserMessage);
+	return truncateWithEllipsis(s, MAX_TITLE_RUNES);
+}
+
 function apiBase(): string {
 	const raw = (PUBLIC_API_URL ?? '').trim();
 	if (!raw) return '';
