@@ -11,9 +11,11 @@ import (
 )
 
 const titleSystemPrompt = `You write short chat session titles. Output rules (must follow exactly):
-- Output a single line only: plain UTF-8 text, no markdown, no quotes, no numbering.
+- Output a single line only: plain UTF-8 text, no markdown, no numbering.
+- Use sentence case, not Title Case: capitalize only the first word of the title (e.g. "Who said ..." not "Who Said ..."). All other words outside quoted speech must be lowercase. Inside straight double quotes "like this", follow normal English (e.g. capitalize the pronoun I; lowercase unless a proper name).
+- Use only straight ASCII double quotes " for dialogue, not curly or single quotes.
 - 3 to 8 words, at most 60 characters total.
-- No trailing punctuation (no period at the end).
+- You may end with one sentence-final mark when it fits: use ? for questions, ! for exclamations, or . for statements. Do not end with a comma or semicolon.
 - Summarize the user's first message in a neutral, concise phrase.
 If you cannot comply, output the single word Untitled`
 

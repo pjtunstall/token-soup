@@ -13,6 +13,7 @@ func TestNormalizeChatTitle(t *testing.T) {
 		{"line1\nline2", "x", "line1 line2"},
 		{"", "short msg", "short msg"},
 		{stringsOfRunes(80), "x", stringsOfRunes(69) + "..."},
+		{"What are your thoughts on cabin fever?", "x", "What are your thoughts on cabin fever?"},
 	}
 	for _, tc := range cases {
 		got := NormalizeChatTitle(tc.raw, tc.fallback)
@@ -32,8 +33,21 @@ func stringsOfRunes(n int) string {
 
 func TestFallbackTitleFromUserMessage(t *testing.T) {
 	t.Parallel()
-	if got := FallbackTitleFromUserMessage("Hi."); got != "Hi" {
+	if got := FallbackTitleFromUserMessage("Hi."); got != "Hi." {
 		t.Errorf("got %q", got)
+	}
+	if got := FallbackTitleFromUserMessage("What are your thoughts on cabin fever?"); got != "What are your thoughts on cabin fever?" {
+		t.Errorf("got %q", got)
+	}
+	nested := `Who says, "I am who I am?"?`
+	if got := FallbackTitleFromUserMessage(nested); got != nested {
+		t.Errorf("nested quote: got %q want %q", got, nested)
+	}
+	if got := FallbackTitleFromUserMessage(`Who says, 'I am who I am?'?`); got != `Who says, 'I am who I am?'?` {
+		t.Errorf("single-quoted nested: got %q", got)
+	}
+	if got := FallbackTitleFromUserMessage("Why don't you ask?"); got != "Why don't you ask?" {
+		t.Errorf("apostrophe: got %q", got)
 	}
 	long := stringsOfRunes(100) + "."
 	if got := FallbackTitleFromUserMessage(long); len([]rune(got)) != maxTitleRunes {

@@ -34,10 +34,30 @@ export type AIStreamEvent = {
 /** Matches backend chat.maxTitleRunes (strict display width). */
 export const MAX_TITLE_RUNES = 72;
 
+function isApostrophe(rs: string[], i: number): boolean {
+	if (i <= 0 || i >= rs.length - 1 || rs[i] !== "'") return false;
+	const prev = rs[i - 1]!;
+	const next = rs[i + 1]!;
+	return /\p{L}/u.test(prev) && /\p{L}/u.test(next);
+}
+
+/** First index after sentence-ending .?! outside balanced "..." or '...' (apostrophes in words skipped). */
 function firstSentenceEnd(s: string): number {
 	const rs = [...s];
+	let inDouble = false;
+	let inSingle = false;
 	for (let i = 0; i < rs.length; i++) {
 		const ch = rs[i];
+		if (ch === '"') {
+			inDouble = !inDouble;
+			continue;
+		}
+		if (ch === "'") {
+			if (isApostrophe(rs, i)) continue;
+			inSingle = !inSingle;
+			continue;
+		}
+		if (inDouble || inSingle) continue;
 		if (ch === '!' || ch === '?') return i + 1;
 		if (ch === '.') {
 			if (i + 1 < rs.length && rs[i + 1] === '.') continue;
@@ -61,7 +81,7 @@ export function fallbackTitleFromUserMessage(msg: string): string {
 	const end = firstSentenceEnd(trimmed);
 	if (end > 0) {
 		let sent = trimmed.slice(0, end).trim();
-		sent = sent.replace(/[.!?]+$/u, '').trim();
+		sent = sent.replace(/,+$/u, '').trim();
 		const sentRunes = [...sent];
 		if (sentRunes.length <= MAX_TITLE_RUNES) return sent;
 		return truncateWithEllipsis(sent, MAX_TITLE_RUNES);
@@ -83,7 +103,7 @@ export function normalizeChatTitle(raw: string, firstUserMessage: string): strin
 	) {
 		s = s.slice(1, -1).trim();
 	}
-	s = s.replace(/[.,;:!?]+$/u, '').trim();
+	s = s.replace(/,+$/u, '').trim();
 	if (!s) return fallbackTitleFromUserMessage(firstUserMessage);
 	return truncateWithEllipsis(s, MAX_TITLE_RUNES);
 }

@@ -325,6 +325,7 @@
 		awaitingAi = true;
 		abortController = new AbortController();
 		let titleReceivedThisSend = false;
+		let abortedThisSend = false;
 		function onStreamEvent(parsed: AIStreamEvent) {
 			if (parsed.type === 'chat_title') {
 				titleReceivedThisSend = true;
@@ -337,12 +338,16 @@
 			await postChat(text, who, session.access_token, abortController.signal, onStreamEvent);
 		} catch (err) {
 			const name = err instanceof Error ? err.name : '';
-			if (name !== 'AbortError') {
+			if (name === 'AbortError') {
+				abortedThisSend = true;
+			} else {
 				const msg = err instanceof Error ? err.message : String(err);
 				pushAssistantBubble(`Error: ${msg}`, undefined);
 			}
 		} finally {
-			if (wasEmpty && !titleReceivedThisSend) {
+			// Only the stop button should use the local first-message heuristic; a normal
+			// completion gets chat_title from the server (including server-side fallback if the title LLM fails).
+			if (wasEmpty && abortedThisSend && !titleReceivedThisSend) {
 				sessionSubtitle = fallbackTitleFromUserMessage(text);
 			}
 			awaitingAi = false;
