@@ -20,6 +20,11 @@ func isOpenRouterTimeout(err error) bool {
 	return errors.As(err, &ne) && ne.Timeout()
 }
 
+// DefaultModelID returns the configured OpenRouter model id (public.messages.sender_model for bot rows).
+func DefaultModelID() string {
+	return openRouterModel
+}
+
 // formatModelDisplayName turns an OpenRouter model id (e.g. "meta-llama/llama-3.1-8b-instruct:free")
 // into a short display label (last path segment after '/').
 func formatModelDisplayName(model string) string {

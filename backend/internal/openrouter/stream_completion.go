@@ -55,15 +55,16 @@ func finishOpenRouterStream(
 }
 
 // StreamOpenRouter streams one completion to emit and returns the full assistant text (if any).
+// systemPrompt is the active persona (e.g. guru); history must include the latest user message and prior turns.
 // When ctx is canceled (client abort/stop), upstream OpenRouter consumption stops and canceled is true.
-func StreamOpenRouter(ctx context.Context, jobID uint64, userPrompt string, emit func(AIEvent)) (assistantText string, canceled bool) {
-	assistantName, apiKey, jsonBody, ok := openRouterStreamPrepare(jobID, userPrompt, emit)
+func StreamOpenRouter(ctx context.Context, jobID uint64, systemPrompt string, history []HistoryTurn, emit func(AIEvent)) (assistantText string, canceled bool) {
+	assistantName, apiKey, jsonBody, ok := openRouterStreamPrepare(jobID, systemPrompt, history, emit)
 	if !ok {
 		return "", false
 	}
 
 	started := time.Now()
-	log.Printf("openrouter: job=%d prompt_bytes=%d", jobID, len(userPrompt))
+	log.Printf("openrouter: job=%d request_json_bytes=%d", jobID, len(jsonBody))
 
 	resp, err := openRouterHTTPPost(ctx, jsonBody, apiKey)
 	if err != nil {

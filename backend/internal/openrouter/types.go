@@ -14,6 +14,12 @@ type openRouterMessage struct {
 	Content string `json:"content"`
 }
 
+// HistoryTurn is one user or assistant message for the OpenRouter chat API (bot → assistant).
+type HistoryTurn struct {
+	User    bool
+	Content string
+}
+
 type openRouterRequest struct {
 	Model       string              `json:"model"`
 	Messages    []openRouterMessage `json:"messages"`

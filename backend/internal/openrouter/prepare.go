@@ -10,13 +10,24 @@ import (
 	"strings"
 )
 
-func newOpenRouterRequest(userPrompt string) openRouterRequest {
+// GuruSystemPrompt returns the default "guru" persona system prompt (matches future public.roles.description).
+func GuruSystemPrompt() string {
+	return openRouterSystemPrompt
+}
+
+func newOpenRouterRequest(systemPrompt string, history []HistoryTurn) openRouterRequest {
+	msgs := make([]openRouterMessage, 0, 1+len(history))
+	msgs = append(msgs, openRouterMessage{Role: "system", Content: systemPrompt})
+	for _, t := range history {
+		role := "assistant"
+		if t.User {
+			role = "user"
+		}
+		msgs = append(msgs, openRouterMessage{Role: role, Content: t.Content})
+	}
 	return openRouterRequest{
-		Model: openRouterModel,
-		Messages: []openRouterMessage{
-			{Role: "system", Content: openRouterSystemPrompt},
-			{Role: "user", Content: userPrompt},
-		},
+		Model:       openRouterModel,
+		Messages:    msgs,
 		Stream:      true,
 		Temperature: 1.2,
 	}
@@ -35,9 +46,9 @@ func newOpenRouterHTTPRequest(ctx context.Context, jsonBody []byte, apiKey strin
 	return req, nil
 }
 
-// openRouterStreamPrepare validates env and prompt, builds the JSON body. ok is false when the
+// openRouterStreamPrepare validates env and history, builds the JSON body. ok is false when the
 // caller should return ("", false) immediately (emit may have been called for missing API key).
-func openRouterStreamPrepare(jobID uint64, userPrompt string, emit func(AIEvent)) (assistantName, apiKey string, jsonBody []byte, ok bool) {
+func openRouterStreamPrepare(jobID uint64, systemPrompt string, history []HistoryTurn, emit func(AIEvent)) (assistantName, apiKey string, jsonBody []byte, ok bool) {
 	assistantName = formatModelDisplayName(openRouterModel)
 	apiKey = os.Getenv("OPENROUTER_API_KEY")
 	if apiKey == "" {
@@ -45,10 +56,15 @@ func openRouterStreamPrepare(jobID uint64, userPrompt string, emit func(AIEvent)
 		emitOpenRouterNotConfigured(emit, jobID, assistantName)
 		return "", "", nil, false
 	}
-	if strings.TrimSpace(userPrompt) == "" {
+	if len(history) == 0 {
 		return "", "", nil, false
 	}
-	requestBody := newOpenRouterRequest(userPrompt)
+	for _, t := range history {
+		if strings.TrimSpace(t.Content) == "" {
+			return "", "", nil, false
+		}
+	}
+	requestBody := newOpenRouterRequest(systemPrompt, history)
 	var err error
 	jsonBody, err = json.Marshal(requestBody)
 	if err != nil {

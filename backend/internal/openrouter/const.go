@@ -12,6 +12,9 @@ const (
 
 	openRouterBusyUserMsg = "OpenRouter seems to be busy right now; please try again later."
 
+	// RoleGuruName is the default in-app role name for the built-in system prompt (public.roles.name later).
+	RoleGuruName = "guru"
+
 	openRouterSystemPrompt = "In this game, your challenge is to appear helpful, but answer only with more questions. Don't give any information away. Instead probe the reasons for the user's request. Challenge them like a therapist or spiritual teacher, gently persistent at first, but drilling more as the response goes on. You can use wordplay and distant associations to reframe the discussion. Try to conclude with one particularly pointed and personally unsettling question."
 )
 

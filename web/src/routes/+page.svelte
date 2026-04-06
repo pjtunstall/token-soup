@@ -1,7 +1,12 @@
 <script lang="ts">
 	import { onDestroy, onMount, tick } from 'svelte';
 	import { renderMarkdown, splitAssistantLabelPrefix } from '$lib/markdown';
-	import { postChat, type AIStreamEvent } from '$lib/chat';
+	import {
+		postChat,
+		DEFAULT_ROLE_NAME,
+		type AIStreamEvent,
+		type ChatMessage
+	} from '$lib/chat';
 	import { getSupabase } from '$lib/supabase';
 	import type { Session } from '@supabase/supabase-js';
 	import { Badge } from '$lib/components/ui/badge';
@@ -33,18 +38,8 @@
 	let signUpMessage = $state('');
 	let displayNameInput = $state('');
 
-	type ChatBubble =
-		| { role: 'user'; displayName: string; text: string }
-		| {
-				role: 'assistant';
-				text: string;
-				assistantName?: string;
-				/** Model reasoning; kept after the answer streams so the user can reopen it. */
-				reasoningText?: string;
-		  };
-
 	let messageInput = $state('');
-	let messages = $state<ChatBubble[]>([]);
+	let messages = $state<ChatMessage[]>([]);
 	let awaitingAi = $state(false);
 	let activeAiJobId = $state<string>('');
 	let logContainer = $state<HTMLDivElement | null>(null);
@@ -56,33 +51,33 @@
 
 	const supabase = getSupabase();
 
-	function assistantStreamContext(i: number, msg: ChatBubble) {
-		if (msg.role !== 'assistant') {
+	function assistantStreamContext(i: number, msg: ChatMessage) {
+		if (msg.sender_type !== 'bot') {
 			return { streamingHere: false, hasReasoning: false };
 		}
 		const activeIdx =
 			activeAiJobId !== '' ? aiBubbleIndexByJobId[activeAiJobId] : undefined;
 		const streamingHere = awaitingAi && activeIdx === i;
-		const hasReasoning = !!msg.reasoningText?.trim();
+		const hasReasoning = !!msg.reasoning?.trim();
 		return { streamingHere, hasReasoning };
 	}
 
-	function assistantAnswerHasContent(msg: ChatBubble): boolean {
-		if (msg.role !== 'assistant') return false;
-		const split = splitAssistantLabelPrefix(msg.text, msg.assistantName ?? 'assistant');
-		if (!split) return msg.text.trim().length > 0;
+	function assistantAnswerHasContent(msg: ChatMessage): boolean {
+		if (msg.sender_type !== 'bot') return false;
+		const split = splitAssistantLabelPrefix(msg.content, msg.sender_model ?? 'assistant');
+		if (!split) return msg.content.trim().length > 0;
 		return split.rest.trim() !== '';
 	}
 
 	/** Model label pulses + ellipsis until the first answer tokens arrive. */
-	function showAssistantModelThinking(i: number, msg: ChatBubble): boolean {
-		if (msg.role !== 'assistant') return false;
+	function showAssistantModelThinking(i: number, msg: ChatMessage): boolean {
+		if (msg.sender_type !== 'bot') return false;
 		if (!assistantStreamContext(i, msg).streamingHere) return false;
 		return !assistantAnswerHasContent(msg);
 	}
 
 	/** Separate control to open reasoning (while streaming or after stop, if any). */
-	function showReasoningControl(i: number, msg: ChatBubble): boolean {
+	function showReasoningControl(i: number, msg: ChatMessage): boolean {
 		const { streamingHere, hasReasoning } = assistantStreamContext(i, msg);
 		return streamingHere || hasReasoning;
 	}
@@ -109,17 +104,25 @@
 		});
 	}
 
-	function pushAssistantBubble(text: string, assistantName?: string) {
+	function pushAssistantBubble(text: string, senderModel?: string) {
 		const idx = messages.length;
-		const n = assistantName?.trim();
-		messages = [...messages, { role: 'assistant', text, assistantName: n || undefined }];
+		const model = senderModel?.trim() || 'assistant';
+		messages = [
+			...messages,
+			{
+				sender_type: 'bot',
+				sender_name: DEFAULT_ROLE_NAME,
+				sender_model: model,
+				content: text
+			}
+		];
 		scheduleScroll();
 		return idx;
 	}
 
-	function pushUserBubble(displayName: string, text: string) {
+	function pushUserBubble(senderName: string, text: string) {
 		const idx = messages.length;
-		messages = [...messages, { role: 'user', displayName, text }];
+		messages = [...messages, { sender_type: 'user', sender_name: senderName, content: text }];
 		scheduleScroll();
 		return idx;
 	}
@@ -152,16 +155,17 @@
 					activeAiJobId = jobId;
 				}
 				const current = messages[idx];
-				if (!current || current.role !== 'assistant') return;
-				const nm = current.assistantName ?? parsed.name;
-				const prevReasoning = current.reasoningText ?? '';
+				if (!current || current.sender_type !== 'bot') return;
+				const nm = current.sender_model ?? parsed.name;
+				const prevReasoning = current.reasoning ?? '';
 				messages = [
 					...messages.slice(0, idx),
 					{
-						role: 'assistant',
-						text: current.text,
-						reasoningText: prevReasoning + deltaText,
-						assistantName: nm
+						sender_type: 'bot',
+						sender_name: DEFAULT_ROLE_NAME,
+						sender_model: nm ?? 'assistant',
+						content: current.content,
+						reasoning: prevReasoning + deltaText
 					},
 					...messages.slice(idx + 1)
 				];
@@ -181,8 +185,8 @@
 					return;
 				}
 				const current = messages[idx];
-				if (!current || current.role !== 'assistant') return;
-				const nm = current.assistantName ?? parsed.name;
+				if (!current || current.sender_type !== 'bot') return;
+				const nm = current.sender_model ?? parsed.name;
 				const answerStarted = deltaText.trim() !== '';
 				if (answerStarted) {
 					reasoningExpandedByIndex = { ...reasoningExpandedByIndex, [idx]: false };
@@ -190,10 +194,11 @@
 				messages = [
 					...messages.slice(0, idx),
 					{
-						role: 'assistant',
-						text: current.text + deltaText,
-						assistantName: nm,
-						reasoningText: current.reasoningText
+						sender_type: 'bot',
+						sender_name: DEFAULT_ROLE_NAME,
+						sender_model: nm ?? 'assistant',
+						content: current.content + deltaText,
+						reasoning: current.reasoning
 					},
 					...messages.slice(idx + 1)
 				];
@@ -213,16 +218,17 @@
 					return;
 				}
 				const cur = messages[idx];
-				const nm = cur?.role === 'assistant' ? (cur.assistantName ?? parsed.name) : parsed.name;
-				const keepReasoning =
-					cur?.role === 'assistant' ? cur.reasoningText : undefined;
+				const nm =
+					cur?.sender_type === 'bot' ? (cur.sender_model ?? parsed.name) : parsed.name;
+				const keepReasoning = cur?.sender_type === 'bot' ? cur.reasoning : undefined;
 				messages = [
 					...messages.slice(0, idx),
 					{
-						role: 'assistant',
-						text: replacement,
-						assistantName: nm,
-						reasoningText: keepReasoning
+						sender_type: 'bot',
+						sender_name: DEFAULT_ROLE_NAME,
+						sender_model: nm ?? 'assistant',
+						content: replacement,
+						reasoning: keepReasoning
 					},
 					...messages.slice(idx + 1)
 				];
@@ -314,7 +320,7 @@
 		awaitingAi = true;
 		abortController = new AbortController();
 		try {
-			await postChat(text, session.access_token, abortController.signal, handleStreamEvent);
+			await postChat(text, who, session.access_token, abortController.signal, handleStreamEvent);
 		} catch (err) {
 			const name = err instanceof Error ? err.name : '';
 			if (name !== 'AbortError') {
@@ -449,24 +455,24 @@
 						{:else}
 							<ul class="space-y-2">
 								{#each messages as msg, i (i)}
-									{#if msg.role === 'user'}
+									{#if msg.sender_type === 'user'}
 										<li
 											class="rounded-lg border-2 border-bubble-user-border bg-bubble-user px-3 py-2 text-sm text-foreground"
 										>
 											<div class="flex flex-col gap-1.5">
-												<div class="font-semibold text-foreground">{msg.displayName}</div>
+												<div class="font-semibold text-foreground">{msg.sender_name}</div>
 												<div
 													class="prose prose-sm max-w-none text-foreground dark:prose-invert prose-headings:mt-3 prose-headings:mb-2 prose-p:my-2 first:prose-p:mt-0 last:prose-p:mb-0 prose-pre:my-2 prose-strong:font-semibold prose-strong:text-foreground prose-headings:first:mt-0"
 												>
 													<!-- eslint-disable-next-line svelte/no-at-html-tags -- DOMPurify sanitizes -->
-													{@html renderMarkdown(msg.text)}
+													{@html renderMarkdown(msg.content)}
 												</div>
 											</div>
 										</li>
 									{:else}
 										{@const prefix = splitAssistantLabelPrefix(
-											msg.text,
-											msg.assistantName ?? 'assistant'
+											msg.content,
+											msg.sender_model ?? 'assistant'
 										)}
 										<li
 											class="rounded-lg border-2 border-bubble-assistant-border bg-bubble-assistant px-3 py-2 text-sm text-foreground"
@@ -519,8 +525,8 @@
 															<p
 																class="max-h-64 overflow-y-auto whitespace-pre-wrap break-words px-2 py-2 font-mono text-xs leading-relaxed text-muted-foreground"
 															>
-																{msg.reasoningText?.trim()
-																	? msg.reasoningText
+																{msg.reasoning?.trim()
+																	? msg.reasoning
 																	: 'Waiting for reasoning…'}
 															</p>
 														</div>
@@ -528,37 +534,40 @@
 												</div>
 											{/if}
 											<div class="flex flex-col gap-1.5">
-												{#if prefix}
-													<div
-														class="flex flex-wrap items-baseline gap-0.5 text-sm font-semibold text-foreground"
-														role={showAssistantModelThinking(i, msg) ? 'status' : undefined}
-														aria-live={showAssistantModelThinking(i, msg) ? 'polite' : undefined}
+												<div
+													class="flex flex-wrap items-baseline gap-x-1.5 text-sm"
+													role={showAssistantModelThinking(i, msg) ? 'status' : undefined}
+													aria-live={showAssistantModelThinking(i, msg) ? 'polite' : undefined}
+												>
+													<span
+														class="font-semibold text-foreground {showAssistantModelThinking(i, msg)
+															? 'assistant-model-name-pulse'
+															: ''}">{msg.sender_name}</span
 													>
-														<span
-															class={showAssistantModelThinking(i, msg)
-																? 'assistant-model-name-pulse'
-																: ''}>{prefix.label}</span
-														>
+													<span class="inline-flex items-baseline font-normal text-muted-foreground">
+														<span>({msg.sender_model ?? 'assistant'})</span>
 														{#if showAssistantModelThinking(i, msg)}
-															<span class="thinking-dots text-muted-foreground" aria-hidden="true"
+															<span
+																class="thinking-dots ml-1 text-muted-foreground"
+																aria-hidden="true"
 																><span>.</span><span>.</span><span>.</span></span
 															>
 														{/if}
-													</div>
-													{#if prefix.rest.trim()}
-														<div
-															class="prose prose-sm max-w-none text-foreground dark:prose-invert prose-headings:mt-3 prose-headings:mb-2 prose-p:my-2 first:prose-p:mt-0 last:prose-p:mb-0 prose-pre:my-2 prose-strong:font-semibold prose-strong:text-foreground prose-headings:first:mt-0"
-														>
-															<!-- eslint-disable-next-line svelte/no-at-html-tags -- DOMPurify sanitizes LLM HTML -->
-															{@html renderMarkdown(prefix.rest)}
-														</div>
-													{/if}
-												{:else}
+													</span>
+												</div>
+												{#if prefix?.rest?.trim()}
 													<div
 														class="prose prose-sm max-w-none text-foreground dark:prose-invert prose-headings:mt-3 prose-headings:mb-2 prose-p:my-2 first:prose-p:mt-0 last:prose-p:mb-0 prose-pre:my-2 prose-strong:font-semibold prose-strong:text-foreground prose-headings:first:mt-0"
 													>
 														<!-- eslint-disable-next-line svelte/no-at-html-tags -- DOMPurify sanitizes LLM HTML -->
-														{@html renderMarkdown(msg.text)}
+														{@html renderMarkdown(prefix.rest)}
+													</div>
+												{:else if !prefix && msg.content.trim()}
+													<div
+														class="prose prose-sm max-w-none text-foreground dark:prose-invert prose-headings:mt-3 prose-headings:mb-2 prose-p:my-2 first:prose-p:mt-0 last:prose-p:mb-0 prose-pre:my-2 prose-strong:font-semibold prose-strong:text-foreground prose-headings:first:mt-0"
+													>
+														<!-- eslint-disable-next-line svelte/no-at-html-tags -- DOMPurify sanitizes LLM HTML -->
+														{@html renderMarkdown(msg.content)}
 													</div>
 												{/if}
 											</div>

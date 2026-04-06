@@ -1,5 +1,28 @@
 import { PUBLIC_API_URL } from '$env/static/public';
 
+/** Default interlocutor role name; matches backend openrouter.RoleGuruName / future public.roles.name. */
+export const DEFAULT_ROLE_NAME = 'guru' as const;
+
+/**
+ * In-app chat row aligned with public.messages (no id, chat_id, or created_at until persisted).
+ * Bot `sender_model` holds the short model label from the stream (UI); the server stores the full model id.
+ */
+export type ChatMessage =
+	| {
+			sender_type: 'user';
+			sender_name: string;
+			content: string;
+			role_id?: number | null;
+	  }
+	| {
+			sender_type: 'bot';
+			sender_name: string;
+			content: string;
+			sender_model: string;
+			reasoning?: string | null;
+			role_id?: number | null;
+	  };
+
 export type AIStreamEvent = {
 	type: string;
 	jobId?: number | string;
@@ -58,6 +81,7 @@ async function* parseSSE(body: ReadableStream<Uint8Array>): AsyncGenerator<AIStr
  */
 export async function postChat(
 	message: string,
+	senderName: string,
 	accessToken: string,
 	signal: AbortSignal,
 	onEvent: (ev: AIStreamEvent) => void
@@ -69,7 +93,7 @@ export async function postChat(
 			Authorization: `Bearer ${accessToken}`,
 			'Content-Type': 'application/json'
 		},
-		body: JSON.stringify({ message }),
+		body: JSON.stringify({ message, senderName }),
 		signal
 	});
 	if (!res.ok) {
