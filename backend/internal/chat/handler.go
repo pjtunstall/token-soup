@@ -8,6 +8,8 @@ import (
 	"sync/atomic"
 
 	"github.com/lestrrat-go/jwx/v2/jwk"
+
+	"token-soup/internal/openrouter"
 )
 
 var chatJobCounter uint64
@@ -52,7 +54,7 @@ func ChatHandler(store *HistoryStore, cache *jwk.Cache, jwksURL string) http.Han
 		jobID := atomic.AddUint64(&chatJobCounter, 1)
 		ctx := r.Context()
 
-		assistantText, cancelled := StreamOpenRouter(ctx, jobID, prompt, func(ev AIEvent) {
+		assistantText, canceled := openrouter.StreamOpenRouter(ctx, jobID, prompt, func(ev openrouter.AIEvent) {
 			payload, err := json.Marshal(ev)
 			if err != nil {
 				log.Printf("marshal AI event: %v", err)
@@ -63,7 +65,7 @@ func ChatHandler(store *HistoryStore, cache *jwk.Cache, jwksURL string) http.Han
 			}
 		})
 
-		if !cancelled && strings.TrimSpace(assistantText) != "" {
+		if !canceled && strings.TrimSpace(assistantText) != "" {
 			store.Append(userID, assistantText, false)
 		}
 	}
