@@ -8,6 +8,8 @@ type AIEvent struct {
 	Text  string `json:"text,omitempty"`
 	// Name is the assistant label (from OpenRouter’s resolved model id), without trailing colon.
 	Name string `json:"name,omitempty"`
+	// ChatID is set for type "chat_session" after the chat row is stored (first message).
+	ChatID int64 `json:"chatId,omitempty"`
 }
 
 type openRouterMessage struct {

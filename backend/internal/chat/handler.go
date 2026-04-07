@@ -2,6 +2,7 @@ package chat
 
 import (
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 	"strings"
@@ -18,10 +19,27 @@ var chatJobCounter uint64
 type chatPostBody struct {
 	Message    string `json:"message"`
 	SenderName string `json:"senderName,omitempty"`
+	ChatID     *int64 `json:"chatId,omitempty"`
+	// RoleID selects public.roles (system prompt + message.role_id); omitted = built-in guru prompt, no DB role.
+	RoleID *int64 `json:"roleId,omitempty"`
+	// Ephemeral is set by the client after persist_warning so later turns stay in-memory only (no duplicate chats).
+	Ephemeral bool `json:"ephemeral,omitempty"`
+}
+
+func turnsFromMessages(msgs []Message) []openrouter.HistoryTurn {
+	turns := make([]openrouter.HistoryTurn, len(msgs))
+	for i := range msgs {
+		turns[i] = openrouter.HistoryTurn{
+			User:    msgs[i].SenderType == SenderUser,
+			Content: msgs[i].Content,
+		}
+	}
+	return turns
 }
 
 // ChatHandler handles POST /api/chat with SSE response and Supabase JWT auth.
-func ChatHandler(store *HistoryStore, cache *jwk.Cache, jwksURL string) http.HandlerFunc {
+// If persist is non-nil, chats and messages are stored; otherwise the in-memory HistoryStore is used (legacy).
+func ChatHandler(store *HistoryStore, persist *Persist, cache *jwk.Cache, jwksURL string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		userID, err := AuthUserID(r.Context(), cache, jwksURL, r.Header.Get("Authorization"))
 		if err != nil {
@@ -39,17 +57,10 @@ func ChatHandler(store *HistoryStore, cache *jwk.Cache, jwksURL string) http.Han
 		if senderName == "" {
 			senderName = "You"
 		}
-		history := store.AppendUser(userID, senderName, body.Message)
-		if len(history) == 0 {
+		firstUserText := strings.TrimSpace(body.Message)
+		if firstUserText == "" {
 			http.Error(w, "empty message", http.StatusBadRequest)
 			return
-		}
-		turns := make([]openrouter.HistoryTurn, len(history))
-		for i := range history {
-			turns[i] = openrouter.HistoryTurn{
-				User:    history[i].SenderType == SenderUser,
-				Content: history[i].Content,
-			}
 		}
 
 		flusher, ok := w.(http.Flusher)
@@ -58,14 +69,95 @@ func ChatHandler(store *HistoryStore, cache *jwk.Cache, jwksURL string) http.Han
 			return
 		}
 
+		ctx := r.Context()
+		jobID := atomic.AddUint64(&chatJobCounter, 1)
+
+		var (
+			turns             []openrouter.HistoryTurn
+			msgsForTitleCount int
+			dbChatID          int64
+			saveBotToDB       bool
+			warnPersistFailed bool
+		)
+
+		usePool := persist != nil && persist.Pool != nil
+		requestedChatID := body.ChatID != nil && *body.ChatID > 0
+
+		systemPrompt := openrouter.GuruSystemPrompt()
+		assistantRoleName := openrouter.RoleGuruName
+		var messageRoleID *int64
+		if usePool {
+			if err := persist.EnsureDefaultGuruRole(ctx, userID); err != nil {
+				log.Printf("ensure guru role: %v", err)
+			}
+			if body.RoleID != nil && *body.RoleID > 0 {
+				role, err := persist.GetRoleForUser(ctx, userID, *body.RoleID)
+				if err != nil && !errors.Is(err, errRoleNotFound) {
+					log.Printf("get role for chat: %v", err)
+				}
+				if role != nil {
+					assistantRoleName = role.Name
+					messageRoleID = &role.ID
+					if role.Description != nil {
+						d := strings.TrimSpace(*role.Description)
+						if d != "" {
+							systemPrompt = d
+						}
+					}
+				}
+			}
+		}
+
+		switch {
+		case !usePool:
+			memoryHistory := store.AppendUser(userID, senderName, firstUserText)
+			if len(memoryHistory) == 0 {
+				http.Error(w, "empty message", http.StatusBadRequest)
+				return
+			}
+			turns = turnsFromMessages(memoryHistory)
+			msgsForTitleCount = len(memoryHistory)
+
+		case !requestedChatID:
+			if body.Ephemeral {
+				memoryHistory := store.AppendUser(userID, senderName, firstUserText)
+				turns = turnsFromMessages(memoryHistory)
+				msgsForTitleCount = len(memoryHistory)
+				break
+			}
+			dbChatID, err = persist.CreateChatWithFirstUserMessage(ctx, userID, senderName, firstUserText, messageRoleID)
+			if err != nil {
+				log.Printf("persist create chat: %v", err)
+				warnPersistFailed = true
+				memoryHistory := store.AppendUser(userID, senderName, firstUserText)
+				turns = turnsFromMessages(memoryHistory)
+				msgsForTitleCount = len(memoryHistory)
+			} else {
+				memoryHistory := store.AppendUserChat(userID, dbChatID, senderName, firstUserText)
+				turns = turnsFromMessages(memoryHistory)
+				msgsForTitleCount = len(memoryHistory)
+				saveBotToDB = true
+			}
+
+		default:
+			dbChatID = *body.ChatID
+			err = persist.AppendUserMessage(ctx, userID, dbChatID, senderName, firstUserText, messageRoleID)
+			if err != nil {
+				log.Printf("persist append user: %v", err)
+				http.Error(w, "could not update chat in the database", http.StatusServiceUnavailable)
+				return
+			}
+			memoryHistory := store.AppendUserChat(userID, dbChatID, senderName, firstUserText)
+			turns = turnsFromMessages(memoryHistory)
+			msgsForTitleCount = len(memoryHistory)
+			saveBotToDB = true
+		}
+
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
 		w.Header().Set("X-Accel-Buffering", "no")
 		w.WriteHeader(http.StatusOK)
-
-		jobID := atomic.AddUint64(&chatJobCounter, 1)
-		ctx := r.Context()
 
 		var sseMu sync.Mutex
 		emit := func(ev openrouter.AIEvent) {
@@ -81,11 +173,33 @@ func ChatHandler(store *HistoryStore, cache *jwk.Cache, jwksURL string) http.Han
 			}
 		}
 
-		firstUserText := strings.TrimSpace(body.Message)
+		emitPersistWarning := func(userMsg string) {
+			emit(openrouter.AIEvent{
+				Type:  "persist_warning",
+				JobID: jobID,
+				Text:  userMsg,
+			})
+		}
+
+		if usePool && !requestedChatID && dbChatID > 0 {
+			emit(openrouter.AIEvent{
+				Type:   "chat_session",
+				JobID:  jobID,
+				ChatID: dbChatID,
+			})
+		}
+
+		if warnPersistFailed {
+			emitPersistWarning(
+				"Could not save your chat to the database after several tries. " +
+					"This conversation is only kept in memory until saving works again.",
+			)
+		}
+
 		var wg sync.WaitGroup
-		if len(history) == 1 && firstUserText != "" {
+		if msgsForTitleCount == 1 && firstUserText != "" {
 			wg.Add(1)
-			go func() {
+			go func(chatID int64, useDB bool) {
 				defer wg.Done()
 				raw, err := openrouter.GenerateChatTitle(ctx, firstUserText)
 				if err != nil {
@@ -101,6 +215,11 @@ func ChatHandler(store *HistoryStore, cache *jwk.Cache, jwksURL string) http.Han
 				if ctx.Err() != nil {
 					return
 				}
+				if useDB && usePool && chatID > 0 {
+					if err := persist.UpdateChatTitle(ctx, userID, chatID, title); err != nil {
+						log.Printf("persist update title: %v", err)
+					}
+				}
 				payload, err := json.Marshal(openrouter.AIEvent{
 					Type:  "chat_title",
 					JobID: jobID,
@@ -113,15 +232,28 @@ func ChatHandler(store *HistoryStore, cache *jwk.Cache, jwksURL string) http.Han
 				if err := WriteSSE(w, flusher, payload); err != nil {
 					log.Printf("sse write chat_title: %v", err)
 				}
-			}()
+			}(dbChatID, saveBotToDB)
 		}
 
-		assistantText, canceled := openrouter.StreamOpenRouter(ctx, jobID, openrouter.GuruSystemPrompt(), turns, emit)
+		assistantText, canceled := openrouter.StreamOpenRouter(ctx, jobID, systemPrompt, turns, emit)
 
 		wg.Wait()
 
 		if !canceled && strings.TrimSpace(assistantText) != "" {
-			store.AppendBot(userID, openrouter.RoleGuruName, openrouter.DefaultModelID(), assistantText, nil)
+			if dbChatID > 0 {
+				store.AppendBotChat(userID, dbChatID, assistantRoleName, openrouter.DefaultModelID(), assistantText, nil)
+				if saveBotToDB && usePool {
+					err := persist.InsertBotMessage(ctx, userID, dbChatID, assistantRoleName, openrouter.DefaultModelID(), nil, assistantText, messageRoleID)
+					if err != nil {
+						log.Printf("persist insert bot: %v", err)
+						emitPersistWarning(
+							"The assistant reply could not be saved to the database. Your message is stored; try again later if this continues.",
+						)
+					}
+				}
+			} else {
+				store.AppendBot(userID, assistantRoleName, openrouter.DefaultModelID(), assistantText, nil)
+			}
 		}
 	}
 }

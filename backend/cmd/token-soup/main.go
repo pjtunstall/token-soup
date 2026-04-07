@@ -6,9 +6,11 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 	"token-soup/internal/chat"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 	"github.com/lestrrat-go/jwx/v2/jwk"
 )
@@ -36,8 +38,29 @@ func main() {
 	flag.Parse()
 	store := &chat.HistoryStore{}
 
+	var persist *chat.Persist
+	if dsn := strings.TrimSpace(os.Getenv("DATABASE_URL")); dsn != "" {
+		pool, err := pgxpool.New(context.Background(), dsn)
+		if err != nil {
+			log.Fatalf("DATABASE_URL: %v", err)
+		}
+		defer pool.Close()
+		persist = &chat.Persist{Pool: pool}
+	} else {
+		log.Print("warning: DATABASE_URL unset; chats are not persisted to Postgres")
+	}
+
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /api/chat", chat.ChatHandler(store, cache, jwksURL))
+	mux.HandleFunc("POST /api/chat", chat.ChatHandler(store, persist, cache, jwksURL))
+	rolesColl := chat.RolesCollectionHandler(persist, cache, jwksURL)
+	mux.HandleFunc("GET /api/roles", rolesColl)
+	mux.HandleFunc("POST /api/roles", rolesColl)
+	rolesItem := chat.RolesItemHandler(persist, cache, jwksURL)
+	mux.HandleFunc("PATCH /api/roles/{id}", rolesItem)
+	mux.HandleFunc("DELETE /api/roles/{id}", rolesItem)
+
+	mux.HandleFunc("GET /api/chats", chat.ChatsCollectionHandler(persist, cache, jwksURL))
+	mux.HandleFunc("GET /api/chats/{id}", chat.ChatsItemHandler(persist, cache, jwksURL))
 
 	handler := chat.WithCORS(mux)
 	err := http.ListenAndServe(*addr, handler)

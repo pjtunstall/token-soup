@@ -29,6 +29,8 @@ export type AIStreamEvent = {
 	text?: string;
 	/** Assistant label from OpenRouter’s resolved model (no colon). */
 	name?: string;
+	/** Set on `chat_session` after the server stores a new chat row (first message). */
+	chatId?: number;
 };
 
 /** Matches backend chat.maxTitleRunes (strict display width). */
@@ -161,16 +163,29 @@ export async function postChat(
 	senderName: string,
 	accessToken: string,
 	signal: AbortSignal,
-	onEvent: (ev: AIStreamEvent) => void
+	chatId: number | null,
+	ephemeral: boolean,
+	onEvent: (ev: AIStreamEvent) => void,
+	roleId?: number | null
 ): Promise<void> {
 	const base = apiBase();
+	const body: Record<string, unknown> = { message, senderName };
+	if (chatId != null) {
+		body.chatId = chatId;
+	}
+	if (roleId != null && roleId > 0) {
+		body.roleId = roleId;
+	}
+	if (ephemeral && chatId == null) {
+		body.ephemeral = true;
+	}
 	const res = await fetch(`${base}/api/chat`, {
 		method: 'POST',
 		headers: {
 			Authorization: `Bearer ${accessToken}`,
 			'Content-Type': 'application/json'
 		},
-		body: JSON.stringify({ message, senderName }),
+		body: JSON.stringify(body),
 		signal
 	});
 	if (!res.ok) {

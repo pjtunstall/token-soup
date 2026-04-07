@@ -1,14 +1,22 @@
 <script lang="ts">
 	import { onDestroy, onMount, tick } from 'svelte';
+	import { fade } from 'svelte/transition';
 	import { renderMarkdown, splitAssistantLabelPrefix } from '$lib/markdown';
 	import {
 		postChat,
-		DEFAULT_ROLE_NAME,
 		normalizeChatTitle,
 		fallbackTitleFromUserMessage,
 		type AIStreamEvent,
 		type ChatMessage
 	} from '$lib/chat';
+	import {
+		fetchRoles,
+		createRole,
+		updateRoleDescription,
+		deleteRole,
+		type RoleRow
+	} from '$lib/roles';
+	import { fetchChats, fetchChat, type ChatSummaryRow } from '$lib/chats';
 	import { getSupabase } from '$lib/supabase';
 	import type { Session } from '@supabase/supabase-js';
 	import { Badge } from '$lib/components/ui/badge';
@@ -26,6 +34,13 @@
 	import Square from '@lucide/svelte/icons/square';
 	import ChevronDown from '@lucide/svelte/icons/chevron-down';
 	import ChevronUp from '@lucide/svelte/icons/chevron-up';
+	import Drama from '@lucide/svelte/icons/drama';
+	import ArrowLeft from '@lucide/svelte/icons/arrow-left';
+	import Feather from '@lucide/svelte/icons/feather';
+	import Trash2 from '@lucide/svelte/icons/trash-2';
+	import GalleryVerticalEnd from '@lucide/svelte/icons/gallery-vertical-end';
+	import MessagesSquare from '@lucide/svelte/icons/messages-square';
+	import Plus from '@lucide/svelte/icons/plus';
 	import Moon from '@lucide/svelte/icons/moon';
 	import Sun from '@lucide/svelte/icons/sun';
 	import { toggleTheme as applyToggleTheme } from '$lib/theme';
@@ -53,15 +68,47 @@
 
 	const defaultSessionSubtitle = 'What do I get into today?';
 	let sessionSubtitle = $state(defaultSessionSubtitle);
+	/** Set after the server creates a row in `public.chats` (first persisted message). */
+	let chatId = $state<number | null>(null);
+	/** Non-empty while the user should know persistence failed (cleared on `chat_session` or sign-out). */
+	let persistWarning = $state('');
+	/** After persist_warning on a new chat, keep turns in-memory only (tells the API not to create a new DB chat each send). */
+	let persistEphemeral = $state(false);
+	/** Signed-in main panel: chat → idle (chat removed) → roles; `chats` = gallery / all-chats view. */
+	let signedInMain = $state<'chat' | 'chats' | 'idle' | 'roles'>('chat');
+	/** Bumped when cancelling `idle` so a pending `tick()` cannot still open roles. */
+	let rolesEnterGeneration = 0;
+	let roleRows = $state<RoleRow[]>([]);
+	let rolesLoadError = $state('');
+	let rolesLoading = $state(false);
+	let rolesUI = $state<'list' | 'detail'>('list');
+	let detailIsNew = $state(false);
+	let detailRoleId = $state<number | null>(null);
+	let detailName = $state('');
+	let detailDescription = $state('');
+	let savingRole = $state(false);
+	let roleSaveError = $state('');
+	let deletingRoleId = $state<number | null>(null);
+	/** Persisted AI persona (`public.roles`); drives system prompt and assistant label. */
+	let selectedRoleId = $state<number | null>(null);
+
+	let chatRows = $state<ChatSummaryRow[]>([]);
+	let chatsLoadError = $state('');
+	let chatsLoading = $state(false);
 
 	const supabase = getSupabase();
+
+	function formatChatListDate(iso: string): string {
+		const d = new Date(iso);
+		if (Number.isNaN(d.getTime())) return '';
+		return d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+	}
 
 	function assistantStreamContext(i: number, msg: ChatMessage) {
 		if (msg.sender_type !== 'bot') {
 			return { streamingHere: false, hasReasoning: false };
 		}
-		const activeIdx =
-			activeAiJobId !== '' ? aiBubbleIndexByJobId[activeAiJobId] : undefined;
+		const activeIdx = activeAiJobId !== '' ? aiBubbleIndexByJobId[activeAiJobId] : undefined;
 		const streamingHere = awaitingAi && activeIdx === i;
 		const hasReasoning = !!msg.reasoning?.trim();
 		return { streamingHere, hasReasoning };
@@ -101,6 +148,58 @@
 		return email ?? 'You';
 	}
 
+	function selectedRoleStorageKey(uid: string): string {
+		return `token-soup:selectedRoleId:${uid}`;
+	}
+
+	function activeAssistantName(): string {
+		if (selectedRoleId != null) {
+			const row = roleRows.find((r) => r.id === selectedRoleId);
+			if (row) return row.name;
+		}
+		return 'Guru';
+	}
+
+	function syncSelectedRoleAfterLoad() {
+		const u = session?.user;
+		if (!u?.id) return;
+		let picked: number | null = null;
+		try {
+			const raw = localStorage.getItem(selectedRoleStorageKey(u.id));
+			if (raw) {
+				const id = Number(raw);
+				if (Number.isFinite(id) && roleRows.some((r) => r.id === id)) picked = id;
+			}
+		} catch {
+			/* ignore */
+		}
+		if (picked == null) {
+			const guru = roleRows.find((r) => r.name.toLowerCase() === 'guru');
+			if (guru) picked = guru.id;
+			else if (roleRows.length > 0) picked = roleRows[0]!.id;
+		}
+		selectedRoleId = picked;
+		if (picked != null) {
+			try {
+				localStorage.setItem(selectedRoleStorageKey(u.id), String(picked));
+			} catch {
+				/* ignore */
+			}
+		}
+	}
+
+	function selectRoleAsCurrent(r: RoleRow) {
+		selectedRoleId = r.id;
+		const uid = session?.user?.id;
+		if (uid) {
+			try {
+				localStorage.setItem(selectedRoleStorageKey(uid), String(r.id));
+			} catch {
+				/* ignore */
+			}
+		}
+	}
+
 	function scheduleScroll() {
 		if (scrollRaf !== null) return;
 		scrollRaf = requestAnimationFrame(() => {
@@ -116,7 +215,7 @@
 			...messages,
 			{
 				sender_type: 'bot',
-				sender_name: DEFAULT_ROLE_NAME,
+				sender_name: activeAssistantName(),
 				sender_model: model,
 				content: text
 			}
@@ -167,7 +266,7 @@
 					...messages.slice(0, idx),
 					{
 						sender_type: 'bot',
-						sender_name: DEFAULT_ROLE_NAME,
+						sender_name: activeAssistantName(),
 						sender_model: nm ?? 'assistant',
 						content: current.content,
 						reasoning: prevReasoning + deltaText
@@ -200,7 +299,7 @@
 					...messages.slice(0, idx),
 					{
 						sender_type: 'bot',
-						sender_name: DEFAULT_ROLE_NAME,
+						sender_name: activeAssistantName(),
 						sender_model: nm ?? 'assistant',
 						content: current.content + deltaText,
 						reasoning: current.reasoning
@@ -223,14 +322,13 @@
 					return;
 				}
 				const cur = messages[idx];
-				const nm =
-					cur?.sender_type === 'bot' ? (cur.sender_model ?? parsed.name) : parsed.name;
+				const nm = cur?.sender_type === 'bot' ? (cur.sender_model ?? parsed.name) : parsed.name;
 				const keepReasoning = cur?.sender_type === 'bot' ? cur.reasoning : undefined;
 				messages = [
 					...messages.slice(0, idx),
 					{
 						sender_type: 'bot',
-						sender_name: DEFAULT_ROLE_NAME,
+						sender_name: activeAssistantName(),
 						sender_model: nm ?? 'assistant',
 						content: replacement,
 						reasoning: keepReasoning
@@ -281,8 +379,7 @@
 				// Logged in immediately (e.g. email confirmation disabled in Supabase).
 				return;
 			}
-			signUpMessage =
-				'Check your email for a confirmation link. After you confirm, sign in here.';
+			signUpMessage = 'Check your email for a confirmation link. After you confirm, sign in here.';
 			password = '';
 			return;
 		}
@@ -297,12 +394,23 @@
 		aiBubbleIndexByJobId = {};
 		reasoningExpandedByIndex = {};
 		sessionSubtitle = defaultSessionSubtitle;
+		chatId = null;
+		persistWarning = '';
+		persistEphemeral = false;
+		signedInMain = 'chat';
+		rolesUI = 'list';
+		roleRows = [];
+		rolesLoadError = '';
+		selectedRoleId = null;
+		chatRows = [];
+		chatsLoadError = '';
 	}
 
 	onMount(() => {
 		void supabase.auth.getSession().then(({ data: { session: s } }) => {
 			session = s;
 			authState = s ? 'signed_in' : 'signed_out';
+			if (s?.access_token) void loadRoleRows();
 		});
 
 		const {
@@ -310,13 +418,20 @@
 		} = supabase.auth.onAuthStateChange((_event, s) => {
 			session = s;
 			authState = s ? 'signed_in' : 'signed_out';
+			if (s?.access_token) {
+				void loadRoleRows();
+			} else {
+				selectedRoleId = null;
+				roleRows = [];
+			}
 		});
 
 		return () => subscription.unsubscribe();
 	});
 
 	async function sendMessage() {
-		if (awaitingAi || !session?.access_token || !messageInput.trim()) return;
+		if (signedInMain !== 'chat' || awaitingAi || !session?.access_token || !messageInput.trim())
+			return;
 		const wasEmpty = messages.length === 0;
 		const text = messageInput.trim();
 		const who = getDisplayName(session);
@@ -327,6 +442,20 @@
 		let titleReceivedThisSend = false;
 		let abortedThisSend = false;
 		function onStreamEvent(parsed: AIStreamEvent) {
+			if (parsed.type === 'chat_session' && typeof parsed.chatId === 'number') {
+				chatId = parsed.chatId;
+				persistWarning = '';
+				persistEphemeral = false;
+				return;
+			}
+			if (parsed.type === 'persist_warning') {
+				persistWarning =
+					(parsed.text ?? '').trim() || 'Your chat could not be saved to the server.';
+				if (chatId == null) {
+					persistEphemeral = true;
+				}
+				return;
+			}
 			if (parsed.type === 'chat_title') {
 				titleReceivedThisSend = true;
 				sessionSubtitle = normalizeChatTitle(parsed.text ?? '', text);
@@ -335,7 +464,16 @@
 			handleStreamEvent(parsed);
 		}
 		try {
-			await postChat(text, who, session.access_token, abortController.signal, onStreamEvent);
+			await postChat(
+				text,
+				who,
+				session.access_token,
+				abortController.signal,
+				chatId,
+				persistEphemeral,
+				onStreamEvent,
+				selectedRoleId
+			);
 		} catch (err) {
 			const name = err instanceof Error ? err.name : '';
 			if (name === 'AbortError') {
@@ -364,11 +502,215 @@
 
 	function handleSubmit(event: SubmitEvent) {
 		event.preventDefault();
+		if (signedInMain !== 'chat') return;
 		void sendMessage();
 	}
 
 	function handleToggleTheme() {
 		applyToggleTheme();
+	}
+
+	function handleSpeechBubble() {
+		signedInMain = 'chat';
+	}
+
+	async function loadChatRows() {
+		if (!session?.access_token) return;
+		chatsLoading = true;
+		chatsLoadError = '';
+		try {
+			chatRows = await fetchChats(session.access_token);
+		} catch (e) {
+			chatRows = [];
+			chatsLoadError = e instanceof Error ? e.message : String(e);
+		} finally {
+			chatsLoading = false;
+		}
+	}
+
+	function handleChatGallery() {
+		signedInMain = 'chats';
+		void loadChatRows();
+	}
+
+	async function openChatFromList(c: ChatSummaryRow) {
+		if (!session?.access_token) return;
+		abortController?.abort();
+		awaitingAi = false;
+		activeAiJobId = '';
+		abortController = null;
+		aiBubbleIndexByJobId = {};
+		reasoningExpandedByIndex = {};
+		messageInput = '';
+		persistWarning = '';
+		persistEphemeral = false;
+		chatsLoadError = '';
+		try {
+			const detail = await fetchChat(session.access_token, c.id);
+			chatId = detail.id;
+			sessionSubtitle = detail.title.trim() || defaultSessionSubtitle;
+			messages = detail.messages;
+			signedInMain = 'chat';
+			scheduleScroll();
+		} catch (e) {
+			chatsLoadError = e instanceof Error ? e.message : String(e);
+		}
+	}
+
+	function handleNewChat() {
+		abortController?.abort();
+		awaitingAi = false;
+		activeAiJobId = '';
+		abortController = null;
+		messages = [];
+		aiBubbleIndexByJobId = {};
+		reasoningExpandedByIndex = {};
+		messageInput = '';
+		sessionSubtitle = defaultSessionSubtitle;
+		chatId = null;
+		persistWarning = '';
+		persistEphemeral = false;
+		signedInMain = 'chat';
+	}
+
+	async function loadRoleRows() {
+		if (!session?.access_token) return;
+		rolesLoading = true;
+		rolesLoadError = '';
+		try {
+			roleRows = await fetchRoles(session.access_token);
+		} catch (e) {
+			roleRows = [];
+			rolesLoadError = e instanceof Error ? e.message : String(e);
+		} finally {
+			rolesLoading = false;
+		}
+		syncSelectedRoleAfterLoad();
+	}
+
+	function openRoleList() {
+		rolesUI = 'list';
+		detailIsNew = false;
+		detailRoleId = null;
+		detailName = '';
+		detailDescription = '';
+		roleSaveError = '';
+	}
+
+	function openNewRoleEditor() {
+		rolesUI = 'detail';
+		detailIsNew = true;
+		detailRoleId = null;
+		detailName = '';
+		detailDescription = '';
+		roleSaveError = '';
+	}
+
+	function openExistingRoleEditor(r: RoleRow) {
+		rolesUI = 'detail';
+		detailIsNew = false;
+		detailRoleId = r.id;
+		detailName = r.name;
+		detailDescription = r.description ?? '';
+		roleSaveError = '';
+	}
+
+	async function saveRoleFromEditor() {
+		if (!session?.access_token || savingRole || rolesUI !== 'detail') return;
+		roleSaveError = '';
+		savingRole = true;
+		try {
+			if (detailIsNew) {
+				const name = detailName.trim();
+				if (!name) {
+					savingRole = false;
+					return;
+				}
+				await createRole(session.access_token, name, detailDescription.trim() || null);
+			} else if (detailRoleId != null) {
+				await updateRoleDescription(
+					session.access_token,
+					detailRoleId,
+					detailDescription.trim() || null
+				);
+			}
+			await loadRoleRows();
+			openRoleList();
+		} catch (e) {
+			roleSaveError = e instanceof Error ? e.message : String(e);
+		} finally {
+			savingRole = false;
+		}
+	}
+
+	async function deleteRoleRow(r: RoleRow, e: MouseEvent) {
+		e.preventDefault();
+		e.stopPropagation();
+		if (!session?.access_token || deletingRoleId != null) return;
+		deletingRoleId = r.id;
+		rolesLoadError = '';
+		try {
+			await deleteRole(session.access_token, r.id);
+			if (detailRoleId === r.id) {
+				openRoleList();
+			}
+			await loadRoleRows();
+		} catch (err) {
+			rolesLoadError = err instanceof Error ? err.message : String(err);
+		} finally {
+			deletingRoleId = null;
+		}
+	}
+
+	function roleSendDisabled(): boolean {
+		if (signedInMain !== 'roles') return true;
+		if (rolesUI === 'list') return true;
+		if (savingRole) return true;
+		if (detailIsNew) return !detailName.trim();
+		return false;
+	}
+
+	function handleRoleSubmit(e: SubmitEvent) {
+		e.preventDefault();
+		if (roleSendDisabled()) return;
+		void saveRoleFromEditor();
+	}
+
+	async function toggleEditRolesMode() {
+		if (signedInMain === 'roles') {
+			return;
+		}
+		if (signedInMain === 'idle') {
+			signedInMain = 'chat';
+			rolesEnterGeneration++;
+			return;
+		}
+		const gen = ++rolesEnterGeneration;
+		signedInMain = 'idle';
+		await tick();
+		if (gen !== rolesEnterGeneration || signedInMain !== 'idle') return;
+		signedInMain = 'roles';
+		roleSaveError = '';
+		openRoleList();
+		void loadRoleRows();
+	}
+
+	function handleNewCharacter() {
+		void toggleEditRolesMode();
+	}
+
+	/** Header icon hover labels (fixed; panel uses bg-card + shadow-card to read off the header). */
+	let headerHoverTip = $state<{ text: string; x: number; y: number } | null>(null);
+
+	function showHeaderHoverTip(text: string, e: PointerEvent) {
+		const el = e.currentTarget;
+		if (!(el instanceof HTMLElement)) return;
+		const r = el.getBoundingClientRect();
+		headerHoverTip = { text, x: r.left + r.width / 2, y: r.bottom + 6 };
+	}
+
+	function hideHeaderHoverTip() {
+		headerHoverTip = null;
 	}
 
 	onDestroy(() => {
@@ -377,27 +719,99 @@
 </script>
 
 <main class="mx-auto flex min-h-screen w-full max-w-3xl items-center p-4">
-	<Card class="h-[80vh] w-full">
-		<CardHeader class="flex flex-row items-center justify-between space-y-0">
-			<div class="space-y-1">
+	<Card class="flex h-[80vh] w-full min-h-0 flex-col">
+		<CardHeader class="flex shrink-0 flex-row items-center gap-2 space-y-0">
+			<div class="min-w-0 shrink space-y-1">
 				<CardTitle class="text-primary">Token Soup</CardTitle>
-				<CardDescription>{sessionSubtitle}</CardDescription>
+				<CardDescription
+					>{signedInMain === 'roles'
+						? 'Edit roles'
+						: signedInMain === 'chats'
+							? 'Chats'
+							: sessionSubtitle}</CardDescription
+				>
 			</div>
-			<div class="flex items-center gap-2">
+			{#if authState === 'signed_in'}
+				<div
+					class="flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 px-2 text-center"
+				>
+					<p class="truncate text-base font-medium leading-snug text-muted-foreground">
+						{getDisplayName(session)}
+					</p>
+					<p class="truncate text-base font-medium leading-snug text-foreground">{activeAssistantName()}</p>
+				</div>
+			{:else}
+				<div class="min-w-0 flex-1" aria-hidden="true"></div>
+			{/if}
+			<div class="flex shrink-0 items-center gap-2">
 				<Button
 					type="button"
 					variant="outline"
 					size="icon-sm"
 					class="shrink-0"
+					onpointerenter={(e) => showHeaderHoverTip('New chat', e)}
+					onpointerleave={hideHeaderHoverTip}
+					onclick={handleNewChat}
+					aria-label="New chat"
+				>
+					<Plus class="size-4" />
+				</Button>
+				<Button
+					type="button"
+					variant={signedInMain === 'chats' ? 'secondary' : 'outline'}
+					size="icon-sm"
+					class="shrink-0"
+					onpointerenter={(e) => showHeaderHoverTip('Chats', e)}
+					onpointerleave={hideHeaderHoverTip}
+					onclick={handleChatGallery}
+					aria-label="Chats"
+					aria-pressed={signedInMain === 'chats'}
+				>
+					<GalleryVerticalEnd class="size-4" />
+				</Button>
+				<Button
+					type="button"
+					variant={signedInMain === 'chat' ? 'secondary' : 'outline'}
+					size="icon-sm"
+					class="shrink-0"
+					onpointerenter={(e) => showHeaderHoverTip('Current chat', e)}
+					onpointerleave={hideHeaderHoverTip}
+					onclick={handleSpeechBubble}
+					aria-label="Current chat"
+					aria-pressed={signedInMain === 'chat'}
+				>
+					<MessagesSquare class="size-4" />
+				</Button>
+				<Button
+					type="button"
+					variant={signedInMain === 'roles' ? 'secondary' : 'outline'}
+					size="icon-sm"
+					class="shrink-0"
+					onpointerenter={(e) => showHeaderHoverTip('Roles', e)}
+					onpointerleave={hideHeaderHoverTip}
+					onclick={handleNewCharacter}
+					aria-label="Roles"
+					aria-pressed={signedInMain === 'roles'}
+				>
+					<Drama class="size-4" />
+				</Button>
+				<Button
+					type="button"
+					variant="outline"
+					size="icon-sm"
+					class="shrink-0"
+					onpointerenter={(e) => showHeaderHoverTip('Theme', e)}
+					onpointerleave={hideHeaderHoverTip}
 					onclick={handleToggleTheme}
 					aria-label="Toggle color theme"
-					title="Light / dark"
 				>
 					<Sun class="hidden size-4 dark:block" />
 					<Moon class="size-4 dark:hidden" />
 				</Button>
 				{#if authState === 'signed_in'}
-					<Button type="button" variant="outline" size="sm" onclick={() => void signOut()}>Sign out</Button>
+					<Button type="button" variant="outline" size="sm" onclick={() => void signOut()}
+						>Sign out</Button
+					>
 				{:else if authState === 'signed_out'}
 					<Badge variant="secondary">signed out</Badge>
 				{:else}
@@ -405,7 +819,15 @@
 				{/if}
 			</div>
 		</CardHeader>
-		<CardContent class="flex h-[calc(100%-6rem)] flex-col gap-3">
+		<CardContent class="flex min-h-0 flex-1 flex-col gap-3">
+			{#if persistWarning}
+				<div
+					class="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-foreground"
+					role="status"
+				>
+					{persistWarning}
+				</div>
+			{/if}
 			{#if authState === 'loading'}
 				<p class="text-sm text-muted-foreground">Loading…</p>
 			{:else if authState === 'signed_out'}
@@ -451,7 +873,13 @@
 								required
 							/>
 						{/if}
-						<Input type="email" placeholder="Email" bind:value={email} autocomplete="email" required />
+						<Input
+							type="email"
+							placeholder="Email"
+							bind:value={email}
+							autocomplete="email"
+							required
+						/>
 						<Input
 							type="password"
 							placeholder="Password"
@@ -469,6 +897,159 @@
 						<Button type="submit">{authMode === 'sign_up' ? 'Create account' : 'Sign in'}</Button>
 					</form>
 				</div>
+			{:else if signedInMain === 'idle'}
+				<div class="min-h-0 flex-1 shrink" aria-hidden="true"></div>
+			{:else if signedInMain === 'chats'}
+				<ScrollArea class="min-h-0 flex-1 rounded-md border border-input bg-field">
+					<div class="min-h-full space-y-2 p-3">
+						{#if chatsLoading}
+							<p class="text-sm text-muted-foreground">Loading chats…</p>
+						{/if}
+						{#if chatsLoadError}
+							<p class="text-sm text-destructive">{chatsLoadError}</p>
+						{/if}
+						<ul class="space-y-1.5">
+							<li>
+								<button
+									type="button"
+									class="w-full rounded-md border border-border bg-background/80 px-3 py-2.5 text-left text-sm font-medium text-foreground transition-colors hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline"
+									onclick={handleNewChat}
+								>
+									New chat
+								</button>
+							</li>
+							{#each chatRows as c (c.id)}
+								{@const dateLabel = formatChatListDate(c.lastUpdated)}
+								<li>
+									<button
+										type="button"
+										class="w-full rounded-md border px-3 py-2.5 text-left text-sm transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline {chatId === c.id
+											? 'border-primary/50 bg-muted/40'
+											: 'border-border bg-background/40 hover:bg-muted/50'}"
+										onclick={() => void openChatFromList(c)}
+									>
+										<div class="font-medium text-foreground">{c.title.trim() || 'Untitled'}</div>
+										{#if dateLabel}
+											<div class="mt-0.5 text-xs text-muted-foreground">{dateLabel}</div>
+										{/if}
+									</button>
+								</li>
+							{/each}
+						</ul>
+						{#if !chatsLoading && !chatsLoadError && chatRows.length === 0}
+							<p class="text-sm text-muted-foreground">No saved chats yet.</p>
+						{/if}
+					</div>
+				</ScrollArea>
+			{:else if signedInMain === 'roles'}
+				<ScrollArea class="min-h-0 flex-1 rounded-md border border-input bg-field">
+					<div class="min-h-full space-y-2 p-3">
+						{#if rolesLoading}
+							<p class="text-sm text-muted-foreground">Loading roles…</p>
+						{/if}
+						{#if rolesLoadError}
+							<p class="text-sm text-destructive">{rolesLoadError}</p>
+						{/if}
+						{#if rolesUI === 'list'}
+							<ul class="space-y-1.5">
+								<li>
+									<button
+										type="button"
+										class="w-full rounded-md border border-border bg-background/80 px-3 py-2.5 text-left text-sm font-medium text-foreground transition-colors hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline"
+										onclick={openNewRoleEditor}
+									>
+										New role
+									</button>
+								</li>
+								{#each roleRows as r (r.id)}
+									<li class="flex items-center gap-1.5">
+										<button
+											type="button"
+											class="min-w-0 flex-1 rounded-md border px-3 py-2.5 text-left text-sm text-foreground transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline {selectedRoleId === r.id
+												? 'border-primary/50 bg-muted/40'
+												: 'border-border bg-background/40 hover:bg-muted/50'}"
+											onclick={() => selectRoleAsCurrent(r)}
+											aria-pressed={selectedRoleId === r.id}
+											aria-label={`Use role ${r.name} for chat`}
+										>
+											{r.name}
+										</button>
+										<Button
+											type="button"
+											variant="outline"
+											size="icon-sm"
+											class="shrink-0"
+											onclick={() => openExistingRoleEditor(r)}
+											aria-label={`Edit role ${r.name}`}
+										>
+											<Feather class="size-4" aria-hidden="true" />
+										</Button>
+										<Button
+											type="button"
+											variant="outline"
+											size="icon-sm"
+											class="shrink-0"
+											disabled={deletingRoleId === r.id}
+											onclick={(e: MouseEvent) => deleteRoleRow(r, e)}
+											aria-label={`Delete role ${r.name}`}
+										>
+											<Trash2 class="size-4" aria-hidden="true" />
+										</Button>
+									</li>
+								{/each}
+							</ul>
+						{:else}
+							<div class="flex flex-col gap-3">
+								<Button
+									type="button"
+									variant="ghost"
+									size="sm"
+									class="w-fit gap-1.5 px-2"
+									onclick={openRoleList}
+								>
+									<ArrowLeft class="size-4" aria-hidden="true" />
+									All roles
+								</Button>
+								<label class="sr-only" for="role-description-editor">Role description</label>
+								<textarea
+									id="role-description-editor"
+									class="min-h-[14rem] w-full resize-y rounded-md border border-input bg-field px-2.5 py-2 text-sm shadow-xs transition-[color,box-shadow] outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
+									placeholder={detailIsNew
+										? 'Describe how this role should behave, including tone, expertise, and boundaries…'
+										: 'Edit the description for this role…'}
+									bind:value={detailDescription}
+									disabled={savingRole}
+									rows={10}
+								></textarea>
+							</div>
+						{/if}
+					</div>
+				</ScrollArea>
+				{#if roleSaveError}
+					<p class="text-sm text-destructive">{roleSaveError}</p>
+				{/if}
+				<form class="flex gap-2" onsubmit={handleRoleSubmit}>
+					{#if rolesUI === 'list'}
+						<Input type="text" value="" disabled placeholder="" class="flex-1" />
+					{:else}
+						<Input
+							type="text"
+							bind:value={detailName}
+							readonly={!detailIsNew}
+							placeholder={detailIsNew ? 'Role name' : ''}
+							disabled={savingRole}
+							autocomplete="off"
+							class="flex-1"
+						/>
+					{/if}
+					<Button
+						type="submit"
+						disabled={roleSendDisabled()}
+						aria-label={rolesUI === 'list' ? 'Save disabled' : 'Save role'}
+					>
+						<SendHorizontal class="size-4" />
+					</Button>
+				</form>
 			{:else}
 				<ScrollArea class="min-h-0 flex-1 rounded-md border border-input bg-field">
 					<div bind:this={logContainer} class="min-h-full space-y-2 p-3">
@@ -484,7 +1065,7 @@
 											<div class="flex flex-col gap-1.5">
 												<div class="font-semibold text-foreground">{msg.sender_name}</div>
 												<div
-													class="prose prose-sm max-w-none text-foreground dark:prose-invert prose-headings:mt-3 prose-headings:mb-2 prose-p:my-2 first:prose-p:mt-0 last:prose-p:mb-0 prose-pre:my-2 prose-strong:font-semibold prose-strong:text-foreground prose-headings:first:mt-0"
+													class="prose prose-sm max-w-none text-foreground dark:prose-invert prose-headings:mt-3 prose-headings:mb-2 prose-headings:first:mt-0 prose-p:my-2 first:prose-p:mt-0 last:prose-p:mb-0 prose-strong:font-semibold prose-strong:text-foreground prose-pre:my-2"
 												>
 													<!-- eslint-disable-next-line svelte/no-at-html-tags -- DOMPurify sanitizes -->
 													{@html renderMarkdown(msg.content)}
@@ -507,7 +1088,7 @@
 														>
 															<button
 																type="button"
-																class="reasoning-disclosure flex w-full items-center justify-start gap-0.5 border-b border-transparent px-2 py-1.5 text-left transition-colors hover:bg-muted/30 focus-visible:outline focus-visible:ring-2 focus-visible:ring-ring"
+																class="reasoning-disclosure flex w-full items-center justify-start gap-0.5 border-b border-transparent px-2 py-1.5 text-left transition-colors hover:bg-muted/30 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline"
 																onclick={() => toggleReasoningExpanded(i)}
 																aria-expanded="false"
 																aria-label="Show reasoning"
@@ -529,7 +1110,7 @@
 														>
 															<button
 																type="button"
-																class="reasoning-disclosure flex w-full items-center justify-start gap-0.5 border-b border-border/50 px-2 py-1.5 text-left transition-colors hover:bg-muted/30 focus-visible:outline focus-visible:ring-2 focus-visible:ring-ring"
+																class="reasoning-disclosure flex w-full items-center justify-start gap-0.5 border-b border-border/50 px-2 py-1.5 text-left transition-colors hover:bg-muted/30 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline"
 																onclick={() => toggleReasoningExpanded(i)}
 																aria-expanded="true"
 																aria-label="Hide reasoning"
@@ -545,11 +1126,9 @@
 																/>
 															</button>
 															<p
-																class="max-h-64 overflow-y-auto whitespace-pre-wrap break-words px-2 py-2 font-mono text-xs leading-relaxed text-muted-foreground"
+																class="max-h-64 overflow-y-auto px-2 py-2 font-mono text-xs leading-relaxed break-words whitespace-pre-wrap text-muted-foreground"
 															>
-																{msg.reasoning?.trim()
-																	? msg.reasoning
-																	: 'Waiting for reasoning…'}
+																{msg.reasoning?.trim() ? msg.reasoning : 'Waiting for reasoning…'}
 															</p>
 														</div>
 													{/if}
@@ -566,27 +1145,28 @@
 															? 'assistant-model-name-pulse'
 															: ''}">{msg.sender_name}</span
 													>
-													<span class="inline-flex items-baseline font-normal text-muted-foreground">
+													<span
+														class="inline-flex items-baseline font-normal text-muted-foreground"
+													>
 														<span>({msg.sender_model ?? 'assistant'})</span>
 														{#if showAssistantModelThinking(i, msg)}
 															<span
 																class="thinking-dots ml-1 text-muted-foreground"
-																aria-hidden="true"
-																><span>.</span><span>.</span><span>.</span></span
+																aria-hidden="true"><span>.</span><span>.</span><span>.</span></span
 															>
 														{/if}
 													</span>
 												</div>
 												{#if prefix?.rest?.trim()}
 													<div
-														class="prose prose-sm max-w-none text-foreground dark:prose-invert prose-headings:mt-3 prose-headings:mb-2 prose-p:my-2 first:prose-p:mt-0 last:prose-p:mb-0 prose-pre:my-2 prose-strong:font-semibold prose-strong:text-foreground prose-headings:first:mt-0"
+														class="prose prose-sm max-w-none text-foreground dark:prose-invert prose-headings:mt-3 prose-headings:mb-2 prose-headings:first:mt-0 prose-p:my-2 first:prose-p:mt-0 last:prose-p:mb-0 prose-strong:font-semibold prose-strong:text-foreground prose-pre:my-2"
 													>
 														<!-- eslint-disable-next-line svelte/no-at-html-tags -- DOMPurify sanitizes LLM HTML -->
 														{@html renderMarkdown(prefix.rest)}
 													</div>
 												{:else if !prefix && msg.content.trim()}
 													<div
-														class="prose prose-sm max-w-none text-foreground dark:prose-invert prose-headings:mt-3 prose-headings:mb-2 prose-p:my-2 first:prose-p:mt-0 last:prose-p:mb-0 prose-pre:my-2 prose-strong:font-semibold prose-strong:text-foreground prose-headings:first:mt-0"
+														class="prose prose-sm max-w-none text-foreground dark:prose-invert prose-headings:mt-3 prose-headings:mb-2 prose-headings:first:mt-0 prose-p:my-2 first:prose-p:mt-0 last:prose-p:mb-0 prose-strong:font-semibold prose-strong:text-foreground prose-pre:my-2"
 													>
 														<!-- eslint-disable-next-line svelte/no-at-html-tags -- DOMPurify sanitizes LLM HTML -->
 														{@html renderMarkdown(msg.content)}
@@ -621,4 +1201,20 @@
 			{/if}
 		</CardContent>
 	</Card>
+	{#if headerHoverTip}
+		<div
+			class="pointer-events-none fixed z-[200]"
+			style:left="{headerHoverTip.x}px"
+			style:top="{headerHoverTip.y}px"
+			style:transform="translateX(-50%)"
+		>
+			<div
+				class="max-w-xs rounded-md border border-border bg-[color-mix(in_oklch,var(--card)_78%,var(--foreground)_22%)] px-2.5 py-1.5 text-xs text-card-foreground shadow-card ring-1 ring-black/10 dark:bg-[color-mix(in_oklch,var(--card)_72%,black_28%)] dark:ring-white/15"
+				transition:fade={{ delay: 55, duration: 145 }}
+				role="tooltip"
+			>
+				{headerHoverTip.text}
+			</div>
+		</div>
+	{/if}
 </main>
