@@ -77,6 +77,19 @@ func (p *Persist) GetRoleForUser(ctx context.Context, userID string, roleID int6
 	return &r, nil
 }
 
+// CreateChat inserts a new chat row and returns its id. Used when a completion is requested before any user message.
+func (p *Persist) CreateChat(ctx context.Context, userID string) (chatID int64, err error) {
+	err = withPersistRetry(ctx, func() error {
+		return p.Pool.QueryRow(ctx, `
+			INSERT INTO public.chats (user_id, title)
+			VALUES ($1::uuid, 'New Chat')
+			RETURNING id`,
+			userID,
+		).Scan(&chatID)
+	})
+	return chatID, err
+}
+
 // CreateChatWithFirstUserMessage inserts a row in chats and the first user message in one transaction.
 func (p *Persist) CreateChatWithFirstUserMessage(ctx context.Context, userID, senderName, content string, roleID *int64) (chatID int64, err error) {
 	err = withPersistRetry(ctx, func() error {

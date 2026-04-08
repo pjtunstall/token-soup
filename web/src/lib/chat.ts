@@ -166,7 +166,9 @@ export async function postChat(
 	chatId: number | null,
 	ephemeral: boolean,
 	onEvent: (ev: AIStreamEvent) => void,
-	roleId?: number | null
+	roleId?: number | null,
+	completion?: boolean,
+	messageOnly?: boolean
 ): Promise<void> {
 	const base = apiBase();
 	const body: Record<string, unknown> = { message, senderName };
@@ -178,6 +180,12 @@ export async function postChat(
 	}
 	if (ephemeral && chatId == null) {
 		body.ephemeral = true;
+	}
+	if (completion) {
+		body.completion = true;
+	}
+	if (messageOnly) {
+		body.messageOnly = true;
 	}
 	const res = await fetch(`${base}/api/chat`, {
 		method: 'POST',

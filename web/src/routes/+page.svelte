@@ -53,6 +53,8 @@
 	let deletingRoleId = $state<number | null>(null);
 	/** Persisted AI persona (`public.roles`); drives system prompt and assistant label. */
 	let selectedRoleId = $state<number | null>(null);
+	/** When true the user is typing; when false the selected AI role will generate next. */
+	let userTurn = $state(false);
 	let rolesPanelRef = $state<RolesPanel | null>(null);
 
 	let chatRows = $state<ChatSummaryRow[]>([]);
@@ -117,6 +119,7 @@
 
 	function selectRoleAsCurrent(r: RoleRow) {
 		selectedRoleId = r.id;
+		userTurn = false;
 		const uid = session?.user?.id;
 		if (uid) {
 			try {
@@ -125,6 +128,73 @@
 				/* ignore */
 			}
 		}
+	}
+
+	function selectUserTurn() {
+		userTurn = true;
+	}
+
+	async function requestCompletion() {
+		rolesPanelRef?.closeEditor();
+		if (signedInMain !== 'chat' || awaitingAi || !session?.access_token) return;
+		awaitingAi = true;
+		abortController = new AbortController();
+		let titleReceivedThisRequest = false;
+		let abortedThisRequest = false;
+		function onStreamEvent(parsed: AIStreamEvent) {
+			if (parsed.type === 'chat_session' && typeof parsed.chatId === 'number') {
+				chatId = parsed.chatId;
+				persistWarning = '';
+				persistEphemeral = false;
+				return;
+			}
+			if (parsed.type === 'persist_warning') {
+				persistWarning =
+					(parsed.text ?? '').trim() || 'Your chat could not be saved to the server.';
+				if (chatId == null) {
+					persistEphemeral = true;
+				}
+				return;
+			}
+			if (parsed.type === 'chat_title') {
+				titleReceivedThisRequest = true;
+				sessionSubtitle = normalizeChatTitle(parsed.text ?? '', '');
+				return;
+			}
+			handleStreamEvent(parsed);
+		}
+		try {
+			await postChat(
+				'',
+				getDisplayName(session),
+				session.access_token,
+				abortController.signal,
+				chatId,
+				persistEphemeral,
+				onStreamEvent,
+				selectedRoleId,
+				true
+			);
+		} catch (err) {
+			const name = err instanceof Error ? err.name : '';
+			if (name === 'AbortError') {
+				abortedThisRequest = true;
+			} else {
+				const msg = err instanceof Error ? err.message : String(err);
+				pushAssistantBubble(`Error: ${msg}`, undefined);
+			}
+		} finally {
+			void titleReceivedThisRequest;
+			void abortedThisRequest;
+			awaitingAi = false;
+			activeAiJobId = '';
+			abortController = null;
+		}
+	}
+
+	function handleDoubleClickRole(r: RoleRow) {
+		selectRoleAsCurrent(r);
+		void requestCompletion();
 	}
 
 	function scheduleScroll() {
@@ -323,15 +393,12 @@
 		rolesPanelRef?.closeEditor();
 		if (signedInMain !== 'chat' || awaitingAi || !session?.access_token || !messageInput.trim())
 			return;
-		const wasEmpty = messages.length === 0;
 		const text = messageInput.trim();
 		const who = getDisplayName(session);
 		pushUserBubble(who, text);
 		messageInput = '';
 		awaitingAi = true;
 		abortController = new AbortController();
-		let titleReceivedThisSend = false;
-		let abortedThisSend = false;
 		function onStreamEvent(parsed: AIStreamEvent) {
 			if (parsed.type === 'chat_session' && typeof parsed.chatId === 'number') {
 				chatId = parsed.chatId;
@@ -348,11 +415,9 @@
 				return;
 			}
 			if (parsed.type === 'chat_title') {
-				titleReceivedThisSend = true;
 				sessionSubtitle = normalizeChatTitle(parsed.text ?? '', text);
 				return;
 			}
-			handleStreamEvent(parsed);
 		}
 		try {
 			await postChat(
@@ -363,22 +428,17 @@
 				chatId,
 				persistEphemeral,
 				onStreamEvent,
-				selectedRoleId
+				selectedRoleId,
+				false,
+				true
 			);
 		} catch (err) {
 			const name = err instanceof Error ? err.name : '';
-			if (name === 'AbortError') {
-				abortedThisSend = true;
-			} else {
+			if (name !== 'AbortError') {
 				const msg = err instanceof Error ? err.message : String(err);
 				pushAssistantBubble(`Error: ${msg}`, undefined);
 			}
 		} finally {
-			// Only the stop button should use the local first-message heuristic; a normal
-			// completion gets chat_title from the server (including server-side fallback if the title LLM fails).
-			if (wasEmpty && abortedThisSend && !titleReceivedThisSend) {
-				sessionSubtitle = fallbackTitleFromUserMessage(text);
-			}
 			awaitingAi = false;
 			activeAiJobId = '';
 			abortController = null;
@@ -552,6 +612,8 @@
 									onToggleReasoning={toggleReasoningExpanded}
 									onSend={sendMessage}
 									onStop={stopMessage}
+									aiMode={!userTurn}
+									onRequestCompletion={requestCompletion}
 								/>
 							</div>
 						{/if}
@@ -567,9 +629,12 @@
 							{rolesLoadError}
 							{selectedRoleId}
 							{deletingRoleId}
+							{userTurn}
 							displayName={getDisplayName(session)}
 							accessToken={session?.access_token ?? ''}
 							onSelectRole={selectRoleAsCurrent}
+							onSelectUser={selectUserTurn}
+							onDoubleClickRole={handleDoubleClickRole}
 							onRolesChanged={loadRoleRows}
 							onDeleteRole={deleteRoleRow}
 						/>

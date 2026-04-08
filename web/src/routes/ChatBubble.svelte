@@ -102,7 +102,7 @@
 							/>
 						</button>
 						<p
-							class="max-h-64 overflow-y-auto px-2 py-2 font-mono text-xs leading-relaxed break-words whitespace-pre-wrap text-muted-foreground"
+							class="reasoning-scrollbar max-h-64 overflow-y-auto px-2 py-2 font-mono text-xs leading-relaxed break-words whitespace-pre-wrap text-muted-foreground"
 						>
 							{msg.reasoning?.trim() ? msg.reasoning : 'Waiting for reasoning…'}
 						</p>
@@ -151,3 +151,25 @@
 		</div>
 	</li>
 {/if}
+
+<style>
+	.reasoning-scrollbar {
+		scrollbar-width: thin;
+		scrollbar-color: var(--border) transparent;
+	}
+
+	.reasoning-scrollbar::-webkit-scrollbar {
+		width: 10px;
+	}
+
+	.reasoning-scrollbar::-webkit-scrollbar-track {
+		background: transparent;
+	}
+
+	.reasoning-scrollbar::-webkit-scrollbar-thumb {
+		background: var(--border);
+		border-radius: 9999px;
+		border: 1px solid transparent;
+		background-clip: content-box;
+	}
+</style>

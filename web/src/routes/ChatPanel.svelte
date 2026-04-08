@@ -13,7 +13,9 @@
 		reasoningExpandedByIndex,
 		onToggleReasoning,
 		onSend,
-		onStop
+		onStop,
+		aiMode,
+		onRequestCompletion
 	}: {
 		messages: ChatMessage[];
 		awaitingAi: boolean;
@@ -24,6 +26,8 @@
 		onToggleReasoning: (index: number) => void;
 		onSend: () => void;
 		onStop: () => void;
+		aiMode: boolean;
+		onRequestCompletion: () => void;
 	} = $props();
 </script>
 
@@ -47,5 +51,5 @@
 </ScrollArea>
 
 <div class="mt-3">
-	<ComposeBar bind:messageInput {awaitingAi} onSubmit={onSend} {onStop} />
+	<ComposeBar bind:messageInput {awaitingAi} {aiMode} onSubmit={onSend} {onStop} {onRequestCompletion} />
 </div>

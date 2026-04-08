@@ -3,6 +3,7 @@ package chat
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"strings"
@@ -24,6 +25,10 @@ type chatPostBody struct {
 	RoleID *int64 `json:"roleId,omitempty"`
 	// Ephemeral is set by the client after persist_warning so later turns stay in-memory only (no duplicate chats).
 	Ephemeral bool `json:"ephemeral,omitempty"`
+	// Completion skips adding a user turn; the AI responds based on existing history and the system prompt.
+	Completion bool `json:"completion,omitempty"`
+	// MessageOnly saves the user message without requesting an AI completion.
+	MessageOnly bool `json:"messageOnly,omitempty"`
 }
 
 func turnsFromMessages(msgs []Message) []openrouter.HistoryTurn {
@@ -58,7 +63,7 @@ func ChatHandler(store *HistoryStore, persist *Persist, cache *jwk.Cache, jwksUR
 			senderName = "You"
 		}
 		firstUserText := strings.TrimSpace(body.Message)
-		if firstUserText == "" {
+		if firstUserText == "" && !body.Completion {
 			http.Error(w, "empty message", http.StatusBadRequest)
 			return
 		}
@@ -110,47 +115,72 @@ func ChatHandler(store *HistoryStore, persist *Persist, cache *jwk.Cache, jwksUR
 
 		switch {
 		case !usePool:
-			memoryHistory := store.AppendUser(userID, senderName, firstUserText)
-			if len(memoryHistory) == 0 {
-				http.Error(w, "empty message", http.StatusBadRequest)
-				return
+			if body.Completion {
+				turns = turnsFromMessages(store.GetHistory(userID, 0))
+			} else {
+				memoryHistory := store.AppendUser(userID, senderName, firstUserText)
+				if len(memoryHistory) == 0 {
+					http.Error(w, "empty message", http.StatusBadRequest)
+					return
+				}
+				turns = turnsFromMessages(memoryHistory)
+				msgsForTitleCount = len(memoryHistory)
 			}
-			turns = turnsFromMessages(memoryHistory)
-			msgsForTitleCount = len(memoryHistory)
 
 		case !requestedChatID:
 			if body.Ephemeral {
-				memoryHistory := store.AppendUser(userID, senderName, firstUserText)
-				turns = turnsFromMessages(memoryHistory)
-				msgsForTitleCount = len(memoryHistory)
+				if body.Completion {
+					turns = turnsFromMessages(store.GetHistory(userID, 0))
+				} else {
+					memoryHistory := store.AppendUser(userID, senderName, firstUserText)
+					turns = turnsFromMessages(memoryHistory)
+					msgsForTitleCount = len(memoryHistory)
+				}
 				break
 			}
-			dbChatID, err = persist.CreateChatWithFirstUserMessage(ctx, userID, senderName, firstUserText, messageRoleID)
-			if err != nil {
-				log.Printf("persist create chat: %v", err)
-				warnPersistFailed = true
-				memoryHistory := store.AppendUser(userID, senderName, firstUserText)
-				turns = turnsFromMessages(memoryHistory)
-				msgsForTitleCount = len(memoryHistory)
+			if body.Completion {
+				dbChatID, err = persist.CreateChat(ctx, userID)
+				if err != nil {
+					log.Printf("persist create chat (completion): %v", err)
+					warnPersistFailed = true
+					turns = turnsFromMessages(store.GetHistory(userID, 0))
+				} else {
+					turns = turnsFromMessages(store.GetHistory(userID, dbChatID))
+					saveBotToDB = true
+				}
 			} else {
+				dbChatID, err = persist.CreateChatWithFirstUserMessage(ctx, userID, senderName, firstUserText, messageRoleID)
+				if err != nil {
+					log.Printf("persist create chat: %v", err)
+					warnPersistFailed = true
+					memoryHistory := store.AppendUser(userID, senderName, firstUserText)
+					turns = turnsFromMessages(memoryHistory)
+					msgsForTitleCount = len(memoryHistory)
+				} else {
+					memoryHistory := store.AppendUserChat(userID, dbChatID, senderName, firstUserText)
+					turns = turnsFromMessages(memoryHistory)
+					msgsForTitleCount = len(memoryHistory)
+					saveBotToDB = true
+				}
+			}
+
+		default:
+			dbChatID = *body.ChatID
+			if body.Completion {
+				turns = turnsFromMessages(store.GetHistory(userID, dbChatID))
+				saveBotToDB = true
+			} else {
+				err = persist.AppendUserMessage(ctx, userID, dbChatID, senderName, firstUserText, messageRoleID)
+				if err != nil {
+					log.Printf("persist append user: %v", err)
+					http.Error(w, "could not update chat in the database", http.StatusServiceUnavailable)
+					return
+				}
 				memoryHistory := store.AppendUserChat(userID, dbChatID, senderName, firstUserText)
 				turns = turnsFromMessages(memoryHistory)
 				msgsForTitleCount = len(memoryHistory)
 				saveBotToDB = true
 			}
-
-		default:
-			dbChatID = *body.ChatID
-			err = persist.AppendUserMessage(ctx, userID, dbChatID, senderName, firstUserText, messageRoleID)
-			if err != nil {
-				log.Printf("persist append user: %v", err)
-				http.Error(w, "could not update chat in the database", http.StatusServiceUnavailable)
-				return
-			}
-			memoryHistory := store.AppendUserChat(userID, dbChatID, senderName, firstUserText)
-			turns = turnsFromMessages(memoryHistory)
-			msgsForTitleCount = len(memoryHistory)
-			saveBotToDB = true
 		}
 
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -235,6 +265,38 @@ func ChatHandler(store *HistoryStore, persist *Persist, cache *jwk.Cache, jwksUR
 			}(dbChatID, saveBotToDB)
 		}
 
+		if body.MessageOnly {
+			wg.Wait()
+			return
+		}
+
+		// Completion requests need to end on a user turn for provider compatibility.
+		// If history already ends on user, keep it as-is.
+		// If history exists but ends on assistant, synthesize a user turn from the previous
+		// message content instead of a punctuation placeholder to avoid "responding to '.'".
+		// If there is no history at all (AI-first), fall back to a minimal placeholder for now.
+		if body.Completion && (len(turns) == 0 || !turns[len(turns)-1].User) {
+			synth := "."
+			if len(turns) > 0 {
+				prev := strings.TrimSpace(turns[len(turns)-1].Content)
+				if prev != "" {
+					synth = prev
+				}
+			}
+			turns = append(turns, openrouter.HistoryTurn{User: true, Content: synth})
+		}
+
+		// When continuing a conversation in completion mode, prior assistant turns may have been
+		// written by a different character. Prepend a reminder so the model stays in the current
+		// persona rather than drifting toward the style of earlier messages.
+		if body.Completion && len(turns) > 0 {
+			systemPrompt = fmt.Sprintf(
+				"[Character reminder: you are %s. Be aware that any previous assistant messages in this conversation **might** belong to a different character with a completely different persona — if so, be careful not to adopt their tone and style as your own. Rather, respond only in the role that follows.]\n\n%s",
+				assistantRoleName,
+				systemPrompt,
+			)
+		}
+
 		assistantText, canceled := openrouter.StreamOpenRouter(ctx, jobID, systemPrompt, turns, emit)
 
 		wg.Wait()
@@ -253,6 +315,34 @@ func ChatHandler(store *HistoryStore, persist *Persist, cache *jwk.Cache, jwksUR
 				}
 			} else {
 				store.AppendBot(userID, assistantRoleName, openrouter.DefaultModelID(), assistantText, nil)
+			}
+
+			// For AI-first chats the title goroutine never ran (no user text).
+			// Generate a title from the opening bot message instead.
+			if body.Completion && !requestedChatID && !body.Ephemeral && dbChatID > 0 {
+				if ctx.Err() == nil {
+					raw, err := openrouter.GenerateChatTitle(ctx, assistantText)
+					if err != nil && ctx.Err() == nil {
+						log.Printf("chat title (ai-first): %v", err)
+					}
+					title := NormalizeChatTitle(raw, assistantText)
+					if usePool {
+						if err := persist.UpdateChatTitle(ctx, userID, dbChatID, title); err != nil {
+							log.Printf("persist update title (ai-first): %v", err)
+						}
+					}
+					if payload, err := json.Marshal(openrouter.AIEvent{
+						Type:  "chat_title",
+						JobID: jobID,
+						Text:  title,
+					}); err == nil {
+						sseMu.Lock()
+						if werr := WriteSSE(w, flusher, payload); werr != nil {
+							log.Printf("sse write chat_title (ai-first): %v", werr)
+						}
+						sseMu.Unlock()
+					}
+				}
 			}
 		}
 	}

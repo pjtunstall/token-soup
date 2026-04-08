@@ -47,7 +47,7 @@
 	<div class="flex min-w-0 items-center gap-2">
 		<div class="w-fit max-w-[20rem] min-w-0 shrink space-y-1">
 			<CardTitle class="text-2xl text-primary">Token Soup</CardTitle>
-			<CardDescription class="chat-subtitle-clamp text-base break-words"
+			<CardDescription class="text-base break-words truncate"
 				>{signedInMain === 'chats' ? 'Chats' : sessionSubtitle}</CardDescription
 			>
 		</div>
@@ -139,13 +139,6 @@
 {/if}
 
 <style>
-	:global(.chat-subtitle-clamp) {
-		display: -webkit-box;
-		-webkit-box-orient: vertical;
-		-webkit-line-clamp: 2;
-		overflow: hidden;
-	}
-
 	:global(html:not(.dark) .header-control-btn:hover) {
 		background-color: color-mix(in oklch, var(--primary) 28%, var(--background));
 		border-color: color-mix(in oklch, var(--primary) 62%, var(--border));

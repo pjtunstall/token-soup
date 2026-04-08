@@ -63,6 +63,21 @@ func (s *HistoryStore) AppendBotChat(userID string, chatID int64, senderName, se
 	s.appendBotKey(chatSessionKey(userID, chatID), senderName, senderModel, content, reasoning)
 }
 
+// GetHistory returns the in-memory message history for a session without modifying it.
+// Use chatID = 0 for the legacy per-user session.
+func (s *HistoryStore) GetHistory(userID string, chatID int64) []Message {
+	key := chatSessionKey(userID, chatID)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	h := s.byID[key]
+	if len(h) == 0 {
+		return nil
+	}
+	out := make([]Message, len(h))
+	copy(out, h)
+	return out
+}
+
 func (s *HistoryStore) appendBotKey(key, senderName, senderModel, content string, reasoning *string) {
 	trimmed := strings.TrimSpace(content)
 	if trimmed == "" {
