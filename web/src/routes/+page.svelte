@@ -1,7 +1,5 @@
 <script lang="ts">
 	import { onDestroy, onMount, tick } from 'svelte';
-	import { fade } from 'svelte/transition';
-	import { renderMarkdown, splitAssistantLabelPrefix } from '$lib/markdown';
 	import {
 		postChat,
 		normalizeChatTitle,
@@ -9,58 +7,27 @@
 		type AIStreamEvent,
 		type ChatMessage
 	} from '$lib/chat';
-	import {
-		fetchRoles,
-		createRole,
-		updateRoleDescription,
-		deleteRole,
-		type RoleRow
-	} from '$lib/roles';
+	import { fetchRoles, deleteRole, type RoleRow } from '$lib/roles';
 	import { fetchChats, fetchChat, type ChatSummaryRow } from '$lib/chats';
 	import { getSupabase } from '$lib/supabase';
 	import type { Session } from '@supabase/supabase-js';
-	import { Badge } from '$lib/components/ui/badge';
-	import { Button } from '$lib/components/ui/button';
-	import {
-		Card,
-		CardContent,
-		CardDescription,
-		CardHeader,
-		CardTitle
-	} from '$lib/components/ui/card';
-	import { Input } from '$lib/components/ui/input';
-	import { ScrollArea } from '$lib/components/ui/scroll-area';
-	import SendHorizontal from '@lucide/svelte/icons/send-horizontal';
-	import Square from '@lucide/svelte/icons/square';
-	import ChevronDown from '@lucide/svelte/icons/chevron-down';
-	import ChevronUp from '@lucide/svelte/icons/chevron-up';
-	import Drama from '@lucide/svelte/icons/drama';
-	import ArrowLeft from '@lucide/svelte/icons/arrow-left';
-	import Feather from '@lucide/svelte/icons/feather';
-	import Trash2 from '@lucide/svelte/icons/trash-2';
-	import GalleryVerticalEnd from '@lucide/svelte/icons/gallery-vertical-end';
-	import MessagesSquare from '@lucide/svelte/icons/messages-square';
-	import Plus from '@lucide/svelte/icons/plus';
-	import Moon from '@lucide/svelte/icons/moon';
-	import Sun from '@lucide/svelte/icons/sun';
+	import { Card, CardContent } from '$lib/components/ui/card';
 	import { toggleTheme as applyToggleTheme } from '$lib/theme';
+	import AuthForm from './AuthForm.svelte';
+	import ChatsGallery from './ChatsGallery.svelte';
+	import RolesPanel from './RolesPanel.svelte';
+	import AppHeader from './AppHeader.svelte';
+	import ChatPanel from './ChatPanel.svelte';
 
 	let authState = $state<'loading' | 'signed_out' | 'signed_in'>('loading');
 	let session = $state<Session | null>(null);
-	let email = $state('');
-	let password = $state('');
-	let authError = $state('');
-	let authMode = $state<'sign_in' | 'sign_up'>('sign_in');
-	/** Shown after sign-up when email confirmation is required (no session yet). */
-	let signUpMessage = $state('');
-	let displayNameInput = $state('');
 
 	let messageInput = $state('');
 	let messages = $state<ChatMessage[]>([]);
 	let awaitingAi = $state(false);
 	let activeAiJobId = $state<string>('');
 	let logContainer = $state<HTMLDivElement | null>(null);
-	let aiBubbleIndexByJobId: Record<string, number> = {};
+	let aiBubbleIndexByJobId = $state<Record<string, number>>({});
 	/** Per-message index: expanded reasoning panel (click-to-reveal). */
 	let reasoningExpandedByIndex = $state<Record<number, boolean>>({});
 	let scrollRaf: number | null = null;
@@ -81,14 +48,8 @@
 	let roleRows = $state<RoleRow[]>([]);
 	let rolesLoadError = $state('');
 	let rolesLoading = $state(false);
-	let rolesUI = $state<'list' | 'detail'>('list');
-	let detailIsNew = $state(false);
-	let detailRoleId = $state<number | null>(null);
-	let detailName = $state('');
-	let detailDescription = $state('');
-	let savingRole = $state(false);
-	let roleSaveError = $state('');
 	let deletingRoleId = $state<number | null>(null);
+	let rolesPanelRef = $state<ReturnType<typeof RolesPanel> | null>(null);
 	/** Persisted AI persona (`public.roles`); drives system prompt and assistant label. */
 	let selectedRoleId = $state<number | null>(null);
 	/** Header identity chip selection (mutually exclusive). */
@@ -99,42 +60,6 @@
 	let chatsLoading = $state(false);
 
 	const supabase = getSupabase();
-
-	function formatChatListDate(iso: string): string {
-		const d = new Date(iso);
-		if (Number.isNaN(d.getTime())) return '';
-		return d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
-	}
-
-	function assistantStreamContext(i: number, msg: ChatMessage) {
-		if (msg.sender_type !== 'bot') {
-			return { streamingHere: false, hasReasoning: false };
-		}
-		const activeIdx = activeAiJobId !== '' ? aiBubbleIndexByJobId[activeAiJobId] : undefined;
-		const streamingHere = awaitingAi && activeIdx === i;
-		const hasReasoning = !!msg.reasoning?.trim();
-		return { streamingHere, hasReasoning };
-	}
-
-	function assistantAnswerHasContent(msg: ChatMessage): boolean {
-		if (msg.sender_type !== 'bot') return false;
-		const split = splitAssistantLabelPrefix(msg.content, msg.sender_model ?? 'assistant');
-		if (!split) return msg.content.trim().length > 0;
-		return split.rest.trim() !== '';
-	}
-
-	/** Model label pulses + ellipsis until the first answer tokens arrive. */
-	function showAssistantModelThinking(i: number, msg: ChatMessage): boolean {
-		if (msg.sender_type !== 'bot') return false;
-		if (!assistantStreamContext(i, msg).streamingHere) return false;
-		return !assistantAnswerHasContent(msg);
-	}
-
-	/** Separate control to open reasoning (while streaming or after stop, if any). */
-	function showReasoningControl(i: number, msg: ChatMessage): boolean {
-		const { streamingHere, hasReasoning } = assistantStreamContext(i, msg);
-		return streamingHere || hasReasoning;
-	}
 
 	function toggleReasoningExpanded(i: number) {
 		const next = !reasoningExpandedByIndex[i];
@@ -353,43 +278,6 @@
 		}
 	}
 
-	async function handleAuthSubmit(e: SubmitEvent) {
-		e.preventDefault();
-		authError = '';
-		signUpMessage = '';
-
-		if (authMode === 'sign_up') {
-			const name = displayNameInput.trim();
-			if (!name) {
-				authError = 'Please enter a display name.';
-				return;
-			}
-			const { data, error } = await supabase.auth.signUp({
-				email,
-				password,
-				options: {
-					data: {
-						display_name: name
-					}
-				}
-			});
-			if (error) {
-				authError = error.message;
-				return;
-			}
-			if (data.session) {
-				// Logged in immediately (e.g. email confirmation disabled in Supabase).
-				return;
-			}
-			signUpMessage = 'Check your email for a confirmation link. After you confirm, sign in here.';
-			password = '';
-			return;
-		}
-
-		const { error } = await supabase.auth.signInWithPassword({ email, password });
-		if (error) authError = error.message;
-	}
-
 	async function signOut() {
 		await supabase.auth.signOut();
 		messages = [];
@@ -400,7 +288,7 @@
 		persistWarning = '';
 		persistEphemeral = false;
 		signedInMain = 'chat';
-		rolesUI = 'list';
+		rolesPanelRef?.resetToList();
 		roleRows = [];
 		rolesLoadError = '';
 		selectedRoleId = null;
@@ -502,12 +390,6 @@
 		activeAiJobId = '';
 	}
 
-	function handleSubmit(event: SubmitEvent) {
-		event.preventDefault();
-		if (signedInMain !== 'chat') return;
-		void sendMessage();
-	}
-
 	function handleToggleTheme() {
 		applyToggleTheme();
 	}
@@ -590,61 +472,6 @@
 		syncSelectedRoleAfterLoad();
 	}
 
-	function openRoleList() {
-		rolesUI = 'list';
-		detailIsNew = false;
-		detailRoleId = null;
-		detailName = '';
-		detailDescription = '';
-		roleSaveError = '';
-	}
-
-	function openNewRoleEditor() {
-		rolesUI = 'detail';
-		detailIsNew = true;
-		detailRoleId = null;
-		detailName = '';
-		detailDescription = '';
-		roleSaveError = '';
-	}
-
-	function openExistingRoleEditor(r: RoleRow) {
-		rolesUI = 'detail';
-		detailIsNew = false;
-		detailRoleId = r.id;
-		detailName = r.name;
-		detailDescription = r.description ?? '';
-		roleSaveError = '';
-	}
-
-	async function saveRoleFromEditor() {
-		if (!session?.access_token || savingRole || rolesUI !== 'detail') return;
-		roleSaveError = '';
-		savingRole = true;
-		try {
-			if (detailIsNew) {
-				const name = detailName.trim();
-				if (!name) {
-					savingRole = false;
-					return;
-				}
-				await createRole(session.access_token, name, detailDescription.trim() || null);
-			} else if (detailRoleId != null) {
-				await updateRoleDescription(
-					session.access_token,
-					detailRoleId,
-					detailDescription.trim() || null
-				);
-			}
-			await loadRoleRows();
-			openRoleList();
-		} catch (e) {
-			roleSaveError = e instanceof Error ? e.message : String(e);
-		} finally {
-			savingRole = false;
-		}
-	}
-
 	async function deleteRoleRow(r: RoleRow, e: MouseEvent) {
 		e.preventDefault();
 		e.stopPropagation();
@@ -653,29 +480,12 @@
 		rolesLoadError = '';
 		try {
 			await deleteRole(session.access_token, r.id);
-			if (detailRoleId === r.id) {
-				openRoleList();
-			}
 			await loadRoleRows();
 		} catch (err) {
 			rolesLoadError = err instanceof Error ? err.message : String(err);
 		} finally {
 			deletingRoleId = null;
 		}
-	}
-
-	function roleSendDisabled(): boolean {
-		if (signedInMain !== 'roles') return true;
-		if (rolesUI === 'list') return true;
-		if (savingRole) return true;
-		if (detailIsNew) return !detailName.trim();
-		return false;
-	}
-
-	function handleRoleSubmit(e: SubmitEvent) {
-		e.preventDefault();
-		if (roleSendDisabled()) return;
-		void saveRoleFromEditor();
 	}
 
 	async function toggleEditRolesMode() {
@@ -692,49 +502,13 @@
 		await tick();
 		if (gen !== rolesEnterGeneration || signedInMain !== 'idle') return;
 		signedInMain = 'roles';
-		roleSaveError = '';
-		openRoleList();
+		rolesPanelRef?.resetToList();
 		void loadRoleRows();
 	}
 
 	function handleNewCharacter() {
 		void toggleEditRolesMode();
 	}
-
-	/** Header icon hover labels (fixed; panel uses bg-card + shadow-card to read off the header). */
-	let headerHoverTip = $state<{ text: string; x: number; y: number } | null>(null);
-	let headerLeftEl = $state<HTMLElement | null>(null);
-	let headerControlsEl = $state<HTMLElement | null>(null);
-	let headerLeftInset = $state(0);
-	let headerRightInset = $state(0);
-
-	function updateHeaderCenterInsets() {
-		headerLeftInset = headerLeftEl?.offsetWidth ?? 0;
-		headerRightInset = headerControlsEl?.offsetWidth ?? 0;
-	}
-
-	function showHeaderHoverTip(text: string, e: PointerEvent) {
-		const el = e.currentTarget;
-		if (!(el instanceof HTMLElement)) return;
-		const r = el.getBoundingClientRect();
-		headerHoverTip = { text, x: r.left + r.width / 2, y: r.bottom + 6 };
-	}
-
-	function hideHeaderHoverTip() {
-		headerHoverTip = null;
-	}
-
-	onMount(() => {
-		const ro = new ResizeObserver(() => updateHeaderCenterInsets());
-		if (headerLeftEl) ro.observe(headerLeftEl);
-		if (headerControlsEl) ro.observe(headerControlsEl);
-		updateHeaderCenterInsets();
-		window.addEventListener('resize', updateHeaderCenterInsets);
-		return () => {
-			ro.disconnect();
-			window.removeEventListener('resize', updateHeaderCenterInsets);
-		};
-	});
 
 	onDestroy(() => {
 		abortController?.abort();
@@ -743,142 +517,23 @@
 
 <main class="mx-auto flex min-h-screen w-full max-w-3xl items-center p-4">
 	<Card class="flex h-[80vh] min-h-0 w-full flex-col">
-		<CardHeader class="relative flex shrink-0 flex-row items-center gap-2 space-y-0">
-			<div bind:this={headerLeftEl} class="w-fit max-w-[20rem] min-w-0 shrink space-y-1">
-				<CardTitle class="text-primary">Token Soup</CardTitle>
-				<CardDescription class="chat-subtitle-clamp break-words"
-					>{signedInMain === 'roles'
-						? 'Roles'
-						: signedInMain === 'chats'
-							? 'Chats'
-							: sessionSubtitle}</CardDescription
-				>
-			</div>
-			<div class="min-w-0 flex-1" aria-hidden="true"></div>
-			<div bind:this={headerControlsEl} class="flex shrink-0 items-center gap-2">
-				<Button
-					type="button"
-					variant="outline"
-					size="icon-sm"
-					class="header-control-btn shrink-0"
-					onpointerenter={(e) => showHeaderHoverTip('New chat', e)}
-					onpointerleave={hideHeaderHoverTip}
-					onclick={handleNewChat}
-					aria-label="New chat"
-				>
-					<Plus class="size-4" />
-				</Button>
-				<Button
-					type="button"
-					variant={signedInMain === 'chats' ? 'secondary' : 'outline'}
-					size="icon-sm"
-					class="header-control-btn shrink-0"
-					onpointerenter={(e) => showHeaderHoverTip('Chats', e)}
-					onpointerleave={hideHeaderHoverTip}
-					onclick={handleChatGallery}
-					aria-label="Chats"
-					aria-pressed={signedInMain === 'chats'}
-				>
-					<GalleryVerticalEnd class="size-4" />
-				</Button>
-				<Button
-					type="button"
-					variant={signedInMain === 'chat' ? 'secondary' : 'outline'}
-					size="icon-sm"
-					class="header-control-btn shrink-0"
-					onpointerenter={(e) => showHeaderHoverTip('Current chat', e)}
-					onpointerleave={hideHeaderHoverTip}
-					onclick={handleSpeechBubble}
-					aria-label="Current chat"
-					aria-pressed={signedInMain === 'chat'}
-				>
-					<MessagesSquare class="size-4" />
-				</Button>
-				<Button
-					type="button"
-					variant={signedInMain === 'roles' ? 'secondary' : 'outline'}
-					size="icon-sm"
-					class="header-control-btn shrink-0"
-					onpointerenter={(e) => showHeaderHoverTip('Roles', e)}
-					onpointerleave={hideHeaderHoverTip}
-					onclick={handleNewCharacter}
-					aria-label="Roles"
-					aria-pressed={signedInMain === 'roles'}
-				>
-					<Drama class="size-4" />
-				</Button>
-				<Button
-					type="button"
-					variant="outline"
-					size="icon-sm"
-					class="header-control-btn shrink-0"
-					onpointerenter={(e) => showHeaderHoverTip('Theme', e)}
-					onpointerleave={hideHeaderHoverTip}
-					onclick={handleToggleTheme}
-					aria-label="Toggle color theme"
-				>
-					<Sun class="hidden size-4 dark:block" />
-					<Moon class="size-4 dark:hidden" />
-				</Button>
-				{#if authState === 'signed_in'}
-					<Button
-						type="button"
-						variant="outline"
-						size="sm"
-						class="header-control-btn"
-						onclick={() => void signOut()}>Sign out</Button
-					>
-				{:else if authState === 'signed_out'}
-					<Badge variant="secondary">signed out</Badge>
-				{:else}
-					<Badge variant="secondary">…</Badge>
-				{/if}
-			</div>
-			{#if authState === 'signed_in'}
-				<div
-					class="absolute inset-y-0 flex items-center"
-					style:left="{headerLeftInset + 8}px"
-					style:right="{headerRightInset + 8}px"
-				>
-					<div
-						class="mx-auto flex w-fit max-w-full min-w-0 flex-col items-center justify-center gap-1 px-2 text-center"
-					>
-						<Button
-							type="button"
-							size="sm"
-							variant="outline"
-							class="header-control-btn header-identity-button h-7 max-w-full truncate px-2 text-base leading-snug font-medium transition-colors {selectedHeaderIdentity ===
-							'user'
-								? ''
-								: 'text-muted-foreground'}"
-							data-selected={selectedHeaderIdentity === 'user'}
-							aria-pressed={selectedHeaderIdentity === 'user'}
-							onclick={() => {
-								selectedHeaderIdentity = 'user';
-							}}
-						>
-							{getDisplayName(session)}
-						</Button>
-						<Button
-							type="button"
-							size="sm"
-							variant="outline"
-							class="header-control-btn header-identity-button h-7 max-w-full truncate px-2 text-base leading-snug font-medium transition-colors {selectedHeaderIdentity ===
-							'role'
-								? ''
-								: 'text-muted-foreground'}"
-							data-selected={selectedHeaderIdentity === 'role'}
-							aria-pressed={selectedHeaderIdentity === 'role'}
-							onclick={() => {
-								selectedHeaderIdentity = 'role';
-							}}
-						>
-							{activeAssistantName()}
-						</Button>
-					</div>
-				</div>
-			{/if}
-		</CardHeader>
+		<AppHeader
+			{authState}
+			{signedInMain}
+			{sessionSubtitle}
+			displayName={getDisplayName(session)}
+			assistantName={activeAssistantName()}
+			{selectedHeaderIdentity}
+			onNewChat={handleNewChat}
+			onChatGallery={handleChatGallery}
+			onCurrentChat={handleSpeechBubble}
+			onRoles={handleNewCharacter}
+			onToggleTheme={handleToggleTheme}
+			onSignOut={() => void signOut()}
+			onSelectIdentity={(id) => {
+				selectedHeaderIdentity = id;
+			}}
+		/>
 		<CardContent class="flex min-h-0 flex-1 flex-col gap-3">
 			{#if persistWarning}
 				<div
@@ -888,413 +543,53 @@
 					{persistWarning}
 				</div>
 			{/if}
-			{#if authState === 'loading'}
-				<p class="text-sm text-muted-foreground">Loading…</p>
-			{:else if authState === 'signed_out'}
-				<div class="flex max-w-sm flex-col gap-3">
-					<div class="flex gap-2 text-sm">
-						<button
-							type="button"
-							class="rounded-md px-2 py-1 underline-offset-4 hover:underline {authMode === 'sign_in'
-								? 'font-medium text-foreground'
-								: 'text-muted-foreground'}"
-							onclick={() => {
-								authMode = 'sign_in';
-								authError = '';
-								signUpMessage = '';
-								displayNameInput = '';
-							}}
-						>
-							Sign in
-						</button>
-						<span class="text-muted-foreground">·</span>
-						<button
-							type="button"
-							class="rounded-md px-2 py-1 underline-offset-4 hover:underline {authMode === 'sign_up'
-								? 'font-medium text-foreground'
-								: 'text-muted-foreground'}"
-							onclick={() => {
-								authMode = 'sign_up';
-								authError = '';
-								signUpMessage = '';
-							}}
-						>
-							Create account
-						</button>
-					</div>
-					<form class="flex flex-col gap-2" onsubmit={handleAuthSubmit}>
-						{#if authMode === 'sign_up'}
-							<Input
-								type="text"
-								placeholder="Display name"
-								bind:value={displayNameInput}
-								autocomplete="nickname"
-								maxlength={64}
-								required
-							/>
-						{/if}
-						<Input
-							type="email"
-							placeholder="Email"
-							bind:value={email}
-							autocomplete="email"
-							required
-						/>
-						<Input
-							type="password"
-							placeholder="Password"
-							bind:value={password}
-							autocomplete={authMode === 'sign_up' ? 'new-password' : 'current-password'}
-							minlength={authMode === 'sign_up' ? 6 : undefined}
-							required
-						/>
-						{#if authError}
-							<p class="text-sm text-destructive">{authError}</p>
-						{/if}
-						{#if signUpMessage}
-							<p class="text-sm text-muted-foreground">{signUpMessage}</p>
-						{/if}
-						<Button type="submit">{authMode === 'sign_up' ? 'Create account' : 'Sign in'}</Button>
-					</form>
-				</div>
-			{:else if signedInMain === 'idle'}
-				<div class="min-h-0 flex-1 shrink" aria-hidden="true"></div>
-			{:else if signedInMain === 'chats'}
-				<ScrollArea class="min-h-0 flex-1 rounded-md border border-input bg-field">
-					<div class="min-h-full space-y-2 p-3">
-						{#if chatsLoading}
-							<p class="text-sm text-muted-foreground">Loading chats…</p>
-						{/if}
-						{#if chatsLoadError}
-							<p class="text-sm text-destructive">{chatsLoadError}</p>
-						{/if}
-						<ul class="space-y-1.5">
-							<li>
-								<button
-									type="button"
-									class="menu-action-btn w-full rounded-md border border-border bg-background/80 px-3 py-2.5 text-left text-sm font-medium text-foreground transition-colors hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline"
-									onclick={handleNewChat}
-								>
-									New chat
-								</button>
-							</li>
-							{#each chatRows as c (c.id)}
-								{@const dateLabel = formatChatListDate(c.lastUpdated)}
-								<li>
-									<button
-										type="button"
-										class="menu-action-btn w-full rounded-md border px-3 py-2.5 text-left text-sm transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline {chatId ===
-										c.id
-											? 'border-primary/50 bg-muted/40'
-											: 'border-border bg-background/40 hover:bg-muted/50'}"
-										onclick={() => void openChatFromList(c)}
-									>
-										<div class="font-medium text-foreground">{c.title.trim() || 'Untitled'}</div>
-										{#if dateLabel}
-											<div class="mt-0.5 text-xs text-muted-foreground">{dateLabel}</div>
-										{/if}
-									</button>
-								</li>
-							{/each}
-						</ul>
-						{#if !chatsLoading && !chatsLoadError && chatRows.length === 0}
-							<p class="text-sm text-muted-foreground">No saved chats yet.</p>
-						{/if}
-					</div>
-				</ScrollArea>
-			{:else if signedInMain === 'roles'}
-				<ScrollArea class="min-h-0 flex-1 rounded-md border border-input bg-field">
-					<div class="min-h-full space-y-2 p-3">
-						{#if rolesLoading}
-							<p class="text-sm text-muted-foreground">Loading roles…</p>
-						{/if}
-						{#if rolesLoadError}
-							<p class="text-sm text-destructive">{rolesLoadError}</p>
-						{/if}
-						{#if rolesUI === 'list'}
-							<ul class="space-y-1.5">
-								<li>
-									<button
-										type="button"
-										class="menu-action-btn w-full rounded-md border border-border bg-background/80 px-3 py-2.5 text-left text-sm font-medium text-foreground transition-colors hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline"
-										onclick={openNewRoleEditor}
-									>
-										New role
-									</button>
-								</li>
-								{#each roleRows as r (r.id)}
-									<li class="flex items-center gap-1.5">
-										<button
-											type="button"
-											class="menu-action-btn min-w-0 flex-1 rounded-md border px-3 py-2.5 text-left text-sm text-foreground transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline {selectedRoleId ===
-											r.id
-												? 'border-primary/50 bg-muted/40'
-												: 'border-border bg-background/40 hover:bg-muted/50'}"
-											onclick={() => selectRoleAsCurrent(r)}
-											aria-pressed={selectedRoleId === r.id}
-											aria-label={`Use role ${r.name} for chat`}
-										>
-											{r.name}
-										</button>
-										<Button
-											type="button"
-											variant="outline"
-											size="icon-sm"
-											class="menu-action-btn shrink-0"
-											onclick={() => openExistingRoleEditor(r)}
-											aria-label={`Edit role ${r.name}`}
-										>
-											<Feather class="size-4" aria-hidden="true" />
-										</Button>
-										<Button
-											type="button"
-											variant="outline"
-											size="icon-sm"
-											class="menu-action-btn shrink-0"
-											disabled={deletingRoleId === r.id}
-											onclick={(e: MouseEvent) => deleteRoleRow(r, e)}
-											aria-label={`Delete role ${r.name}`}
-										>
-											<Trash2 class="size-4" aria-hidden="true" />
-										</Button>
-									</li>
-								{/each}
-							</ul>
-						{:else}
-							<div class="flex flex-col gap-3">
-								<Button
-									type="button"
-									variant="ghost"
-									size="sm"
-									class="menu-action-btn w-fit gap-1.5 px-2"
-									onclick={openRoleList}
-								>
-									<ArrowLeft class="size-4" aria-hidden="true" />
-									All roles
-								</Button>
-								<label class="sr-only" for="role-description-editor">Role description</label>
-								<textarea
-									id="role-description-editor"
-									class="min-h-[14rem] w-full resize-y rounded-md border border-input bg-field px-2.5 py-2 text-sm shadow-xs transition-[color,box-shadow] outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
-									placeholder={detailIsNew
-										? 'Describe how this role should behave, including tone, expertise, and boundaries…'
-										: 'Edit the description for this role…'}
-									bind:value={detailDescription}
-									disabled={savingRole}
-									rows={10}
-								></textarea>
-							</div>
-						{/if}
-					</div>
-				</ScrollArea>
-				{#if roleSaveError}
-					<p class="text-sm text-destructive">{roleSaveError}</p>
-				{/if}
-				<form class="flex gap-2" onsubmit={handleRoleSubmit}>
-					{#if rolesUI === 'list'}
-						<Input type="text" value="" disabled placeholder="" class="flex-1" />
-					{:else}
-						<Input
-							type="text"
-							bind:value={detailName}
-							readonly={!detailIsNew}
-							placeholder={detailIsNew ? 'Role name' : ''}
-							disabled={savingRole}
-							autocomplete="off"
-							class="flex-1"
-						/>
-					{/if}
-					<Button
-						type="submit"
-						disabled={roleSendDisabled()}
-						aria-label={rolesUI === 'list' ? 'Save disabled' : 'Save role'}
-					>
-						<SendHorizontal class="size-4" />
-					</Button>
-				</form>
-			{:else}
-				<ScrollArea class="min-h-0 flex-1 rounded-md border border-input bg-field">
-					<div bind:this={logContainer} class="min-h-full space-y-2 p-3">
-						{#if messages.length === 0}
-							<p class="text-sm text-muted-foreground">No messages yet.</p>
-						{:else}
-							<ul class="space-y-2">
-								{#each messages as msg, i (i)}
-									{#if msg.sender_type === 'user'}
-										<li
-											class="rounded-lg border-2 border-bubble-user-border bg-bubble-user px-3 py-2 text-sm text-foreground"
-										>
-											<div class="flex flex-col gap-1.5">
-												<div class="font-semibold text-foreground">{msg.sender_name}</div>
-												<div
-													class="prose prose-sm max-w-none text-foreground dark:prose-invert prose-headings:mt-3 prose-headings:mb-2 prose-headings:first:mt-0 prose-p:my-2 first:prose-p:mt-0 last:prose-p:mb-0 prose-strong:font-semibold prose-strong:text-foreground prose-pre:my-2"
-												>
-													<!-- eslint-disable-next-line svelte/no-at-html-tags -- DOMPurify sanitizes -->
-													{@html renderMarkdown(msg.content)}
-												</div>
-											</div>
-										</li>
-									{:else}
-										{@const prefix = splitAssistantLabelPrefix(
-											msg.content,
-											msg.sender_model ?? 'assistant'
-										)}
-										<li
-											class="rounded-lg border-2 border-bubble-assistant-border bg-bubble-assistant px-3 py-2 text-sm text-foreground"
-										>
-											{#if showReasoningControl(i, msg)}
-												<div class="mb-2 flex flex-col gap-2">
-													{#if !reasoningExpandedByIndex[i]}
-														<div
-															class="reasoning-panel overflow-hidden rounded-md border border-border/55 bg-background/40 text-left shadow-sm"
-														>
-															<button
-																type="button"
-																class="reasoning-disclosure flex w-full items-center justify-start gap-0.5 border-b border-transparent px-2 py-1.5 text-left transition-colors hover:bg-muted/30 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline"
-																onclick={() => toggleReasoningExpanded(i)}
-																aria-expanded="false"
-																aria-label="Show reasoning"
-															>
-																<span
-																	class="text-xs font-medium tracking-normal text-muted-foreground"
-																	>Reasoning</span
-																>
-																<ChevronDown
-																	class="size-3.5 shrink-0 text-muted-foreground/75"
-																	strokeWidth={2}
-																	aria-hidden="true"
-																/>
-															</button>
-														</div>
-													{:else}
-														<div
-															class="reasoning-panel overflow-hidden rounded-md border border-border/55 bg-background/40 text-left shadow-sm"
-														>
-															<button
-																type="button"
-																class="reasoning-disclosure flex w-full items-center justify-start gap-0.5 border-b border-border/50 px-2 py-1.5 text-left transition-colors hover:bg-muted/30 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline"
-																onclick={() => toggleReasoningExpanded(i)}
-																aria-expanded="true"
-																aria-label="Hide reasoning"
-															>
-																<span
-																	class="text-xs font-medium tracking-normal text-muted-foreground"
-																	>Reasoning</span
-																>
-																<ChevronUp
-																	class="size-3.5 shrink-0 text-muted-foreground/75"
-																	strokeWidth={2}
-																	aria-hidden="true"
-																/>
-															</button>
-															<p
-																class="max-h-64 overflow-y-auto px-2 py-2 font-mono text-xs leading-relaxed break-words whitespace-pre-wrap text-muted-foreground"
-															>
-																{msg.reasoning?.trim() ? msg.reasoning : 'Waiting for reasoning…'}
-															</p>
-														</div>
-													{/if}
-												</div>
-											{/if}
-											<div class="flex flex-col gap-1.5">
-												<div
-													class="flex flex-wrap items-baseline gap-x-1.5 text-sm"
-													role={showAssistantModelThinking(i, msg) ? 'status' : undefined}
-													aria-live={showAssistantModelThinking(i, msg) ? 'polite' : undefined}
-												>
-													<span
-														class="font-semibold text-foreground {showAssistantModelThinking(i, msg)
-															? 'assistant-model-name-pulse'
-															: ''}">{msg.sender_name}</span
-													>
-													<span
-														class="inline-flex items-baseline font-normal text-muted-foreground"
-													>
-														<span>({msg.sender_model ?? 'assistant'})</span>
-														{#if showAssistantModelThinking(i, msg)}
-															<span
-																class="thinking-dots ml-1 text-muted-foreground"
-																aria-hidden="true"><span>.</span><span>.</span><span>.</span></span
-															>
-														{/if}
-													</span>
-												</div>
-												{#if prefix?.rest?.trim()}
-													<div
-														class="prose prose-sm max-w-none text-foreground dark:prose-invert prose-headings:mt-3 prose-headings:mb-2 prose-headings:first:mt-0 prose-p:my-2 first:prose-p:mt-0 last:prose-p:mb-0 prose-strong:font-semibold prose-strong:text-foreground prose-pre:my-2"
-													>
-														<!-- eslint-disable-next-line svelte/no-at-html-tags -- DOMPurify sanitizes LLM HTML -->
-														{@html renderMarkdown(prefix.rest)}
-													</div>
-												{:else if !prefix && msg.content.trim()}
-													<div
-														class="prose prose-sm max-w-none text-foreground dark:prose-invert prose-headings:mt-3 prose-headings:mb-2 prose-headings:first:mt-0 prose-p:my-2 first:prose-p:mt-0 last:prose-p:mb-0 prose-strong:font-semibold prose-strong:text-foreground prose-pre:my-2"
-													>
-														<!-- eslint-disable-next-line svelte/no-at-html-tags -- DOMPurify sanitizes LLM HTML -->
-														{@html renderMarkdown(msg.content)}
-													</div>
-												{/if}
-											</div>
-										</li>
-									{/if}
-								{/each}
-							</ul>
-						{/if}
-					</div>
-				</ScrollArea>
-
-				<form class="flex gap-2" onsubmit={handleSubmit}>
-					<Input
-						type="text"
-						placeholder="Type a message..."
-						bind:value={messageInput}
-						disabled={awaitingAi}
-					/>
-					{#if awaitingAi}
-						<Button type="button" onclick={stopMessage} aria-label="Stop">
-							<Square class="size-4" fill="currentColor" stroke="none" />
-						</Button>
-					{:else}
-						<Button type="submit" disabled={!messageInput.trim() || awaitingAi} aria-label="Send">
-							<SendHorizontal class="size-4" />
-						</Button>
-					{/if}
-				</form>
-			{/if}
+		{#if authState === 'loading'}
+			<p class="text-sm text-muted-foreground">Loading…</p>
+		{:else if authState === 'signed_out'}
+			<AuthForm {supabase} />
+		{:else if signedInMain === 'idle'}
+			<div class="min-h-0 flex-1 shrink" aria-hidden="true"></div>
+		{:else if signedInMain === 'chats'}
+			<ChatsGallery
+				{chatRows}
+				{chatsLoading}
+				{chatsLoadError}
+				activeChatId={chatId}
+				onNewChat={handleNewChat}
+				onOpenChat={(c) => void openChatFromList(c)}
+			/>
+		{:else if signedInMain === 'roles'}
+			<RolesPanel
+				bind:this={rolesPanelRef}
+				{roleRows}
+				{rolesLoading}
+				{rolesLoadError}
+				{selectedRoleId}
+				{deletingRoleId}
+				accessToken={session?.access_token ?? ''}
+				onSelectRole={selectRoleAsCurrent}
+				onRolesChanged={() => void loadRoleRows()}
+				onDeleteRole={deleteRoleRow}
+			/>
+		{:else}
+			<ChatPanel
+				{messages}
+				{awaitingAi}
+				bind:messageInput
+				bind:logContainer
+				activeStreamingIndex={activeAiJobId !== '' ? aiBubbleIndexByJobId[activeAiJobId] : undefined}
+				{reasoningExpandedByIndex}
+				onToggleReasoning={toggleReasoningExpanded}
+				onSend={sendMessage}
+				onStop={stopMessage}
+			/>
+		{/if}
 		</CardContent>
 	</Card>
-	{#if headerHoverTip}
-		<div
-			class="pointer-events-none fixed z-[200]"
-			style:left="{headerHoverTip.x}px"
-			style:top="{headerHoverTip.y}px"
-			style:transform="translateX(-50%)"
-		>
-			<div
-				class="max-w-xs rounded-md border border-border bg-[color-mix(in_oklch,var(--card)_78%,var(--foreground)_22%)] px-2.5 py-1.5 text-xs text-card-foreground shadow-card ring-1 ring-black/10 dark:bg-[color-mix(in_oklch,var(--card)_72%,black_28%)] dark:ring-white/15"
-				transition:fade={{ delay: 55, duration: 145 }}
-				role="tooltip"
-			>
-				{headerHoverTip.text}
-			</div>
-		</div>
-	{/if}
+
 </main>
 
 <style>
-	:global(.chat-subtitle-clamp) {
-		display: -webkit-box;
-		-webkit-box-orient: vertical;
-		-webkit-line-clamp: 2;
-		overflow: hidden;
-	}
-
-	:global(html:not(.dark) .header-control-btn:hover) {
-		background-color: color-mix(in oklch, var(--primary) 28%, var(--background));
-		border-color: color-mix(in oklch, var(--primary) 62%, var(--border));
-		color: color-mix(in oklch, var(--foreground) 78%, var(--primary));
-	}
-
 	:global(html:not(.dark) .menu-action-btn:hover) {
 		background-color: color-mix(in oklch, var(--primary) 22%, var(--background)) !important;
 		border-color: color-mix(in oklch, var(--primary) 56%, var(--border)) !important;
