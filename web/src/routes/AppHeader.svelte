@@ -78,7 +78,7 @@
 
 <CardHeader class="relative flex shrink-0 flex-row items-center gap-2 space-y-0">
 	<div bind:this={headerLeftEl} class="w-fit max-w-[20rem] min-w-0 shrink space-y-1">
-		<CardTitle class="text-primary">Token Soup</CardTitle>
+		<CardTitle class="text-2xl text-primary">Token Soup</CardTitle>
 		<CardDescription class="chat-subtitle-clamp break-words"
 			>{signedInMain === 'roles'
 				? 'Roles'
