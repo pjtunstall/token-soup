@@ -821,7 +821,12 @@
 					<Moon class="size-4 dark:hidden" />
 				</Button>
 				{#if authState === 'signed_in'}
-					<Button type="button" variant="outline" size="sm" onclick={() => void signOut()}
+					<Button
+						type="button"
+						variant="outline"
+						size="sm"
+						class="header-control-btn"
+						onclick={() => void signOut()}
 						>Sign out</Button
 					>
 				{:else if authState === 'signed_out'}
@@ -843,7 +848,7 @@
 							type="button"
 							size="sm"
 							variant="outline"
-							class="header-identity-button h-7 max-w-full truncate px-2 text-base leading-snug font-medium transition-colors {selectedHeaderIdentity ===
+							class="header-control-btn header-identity-button h-7 max-w-full truncate px-2 text-base leading-snug font-medium transition-colors {selectedHeaderIdentity ===
 							'user'
 								? ''
 								: 'text-muted-foreground'}"
@@ -859,7 +864,7 @@
 							type="button"
 							size="sm"
 							variant="outline"
-							class="header-identity-button h-7 max-w-full truncate px-2 text-base leading-snug font-medium transition-colors {selectedHeaderIdentity ===
+							class="header-control-btn header-identity-button h-7 max-w-full truncate px-2 text-base leading-snug font-medium transition-colors {selectedHeaderIdentity ===
 							'role'
 								? ''
 								: 'text-muted-foreground'}"
