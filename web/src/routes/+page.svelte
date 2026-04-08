@@ -625,7 +625,7 @@
 							type="button"
 							size="sm"
 							variant="outline"
-							class="header-control-btn h-8 w-full justify-start truncate px-2 text-sm font-medium"
+							class="header-control-btn h-8 w-full justify-start truncate px-2 text-sm disabled:opacity-100"
 							disabled
 							aria-label={roleEditorOpen ? 'Editing role' : 'Signed in user'}
 							onclick={() => {
@@ -707,14 +707,15 @@
 										<li class="flex items-center gap-1">
 											<button
 												type="button"
-												class="menu-action-btn min-w-0 flex-1 truncate rounded-md border px-2 py-1.5 text-left text-sm transition-colors {selectedRoleId ===
+												class="menu-action-btn role-option-btn min-w-0 flex-1 truncate rounded-md border px-2 py-1.5 text-left text-sm transition-colors {selectedRoleId ===
 												r.id
-													? 'border-primary/50 bg-muted/40'
-													: 'border-border bg-background/40 hover:bg-muted/50'}"
+													? 'border-primary/55'
+													: 'border-border bg-background/40 dark:border-input dark:bg-input/30'}"
 												onclick={() => {
 													selectRoleAsCurrent(r);
 												}}
 												aria-pressed={selectedRoleId === r.id}
+												data-selected={selectedRoleId === r.id ? 'true' : undefined}
 											>
 												{r.name}
 											</button>
@@ -758,5 +759,24 @@
 		background-color: color-mix(in oklch, var(--primary) 22%, var(--background)) !important;
 		border-color: color-mix(in oklch, var(--primary) 56%, var(--border)) !important;
 		color: color-mix(in oklch, var(--foreground) 82%, var(--primary));
+	}
+
+	:global(html:not(.dark) .role-option-btn[data-selected='true']) {
+		background-color: color-mix(in oklch, var(--primary) 22%, var(--background)) !important;
+		border-color: color-mix(in oklch, var(--primary) 62%, var(--border)) !important;
+		color: color-mix(in oklch, var(--foreground) 88%, var(--primary));
+	}
+
+	:global(html.dark .role-option-btn:hover) {
+		background-color: color-mix(in oklch, var(--card) 72%, black 28%) !important;
+		border-color: color-mix(in oklch, var(--primary) 58%, var(--border)) !important;
+		color: color-mix(in oklch, var(--foreground) 90%, var(--primary));
+	}
+
+	:global(html.dark .role-option-btn[data-selected='true']) {
+		background-color: color-mix(in oklch, var(--card) 72%, black 28%) !important;
+		border-color: color-mix(in oklch, var(--primary) 60%, var(--border)) !important;
+		color: color-mix(in oklch, var(--foreground) 94%, var(--primary));
+		box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--primary) 34%, transparent);
 	}
 </style>
