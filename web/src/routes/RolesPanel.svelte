@@ -1,12 +1,9 @@
 <script lang="ts">
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
-	import { ScrollArea } from '$lib/components/ui/scroll-area';
-	import { createRole, updateRoleDescription, type RoleRow } from '$lib/roles';
-	import ArrowLeft from '@lucide/svelte/icons/arrow-left';
+	import { createRole, updateRoleDescription, roleNameExists, type RoleRow } from '$lib/roles';
 	import Feather from '@lucide/svelte/icons/feather';
 	import Trash2 from '@lucide/svelte/icons/trash-2';
-	import SendHorizontal from '@lucide/svelte/icons/send-horizontal';
 
 	let {
 		roleRows,
@@ -14,6 +11,7 @@
 		rolesLoadError,
 		selectedRoleId,
 		deletingRoleId,
+		displayName,
 		accessToken,
 		onSelectRole,
 		onRolesChanged,
@@ -24,130 +22,187 @@
 		rolesLoadError: string;
 		selectedRoleId: number | null;
 		deletingRoleId: number | null;
+		displayName: string;
 		accessToken: string;
 		onSelectRole: (r: RoleRow) => void;
-		onRolesChanged: () => void;
+		onRolesChanged: () => Promise<void>;
 		onDeleteRole: (r: RoleRow, e: MouseEvent) => void;
 	} = $props();
 
-	let rolesUI = $state<'list' | 'detail'>('list');
-	let detailIsNew = $state(false);
-	let detailRoleId = $state<number | null>(null);
-	let detailName = $state('');
-	let detailDescription = $state('');
-	let savingRole = $state(false);
-	let roleSaveError = $state('');
+	let editorOpen = $state(false);
+	let editorIsNew = $state(false);
+	let editorRoleId = $state<number | null>(null);
+	let editorName = $state('');
+	let editorDescription = $state('');
+	let editorSaving = $state(false);
+	let editorError = $state('');
 
-	function openRoleList() {
-		rolesUI = 'list';
-		detailIsNew = false;
-		detailRoleId = null;
-		detailName = '';
-		detailDescription = '';
-		roleSaveError = '';
+	export function closeEditor() {
+		editorOpen = false;
+		editorIsNew = false;
+		editorRoleId = null;
+		editorName = '';
+		editorDescription = '';
+		editorError = '';
+		editorSaving = false;
 	}
 
 	function openNewRoleEditor() {
-		rolesUI = 'detail';
-		detailIsNew = true;
-		detailRoleId = null;
-		detailName = '';
-		detailDescription = '';
-		roleSaveError = '';
+		editorOpen = true;
+		editorIsNew = true;
+		editorRoleId = null;
+		editorName = '';
+		editorDescription = '';
+		editorError = '';
 	}
 
 	function openExistingRoleEditor(r: RoleRow) {
-		rolesUI = 'detail';
-		detailIsNew = false;
-		detailRoleId = r.id;
-		detailName = r.name;
-		detailDescription = r.description ?? '';
-		roleSaveError = '';
+		editorOpen = true;
+		editorIsNew = false;
+		editorRoleId = r.id;
+		editorName = r.name;
+		editorDescription = r.description ?? '';
+		editorError = '';
 	}
 
-	function sendDisabled(): boolean {
-		if (rolesUI === 'list') return true;
-		if (savingRole) return true;
-		if (detailIsNew) return !detailName.trim();
-		return false;
-	}
-
-	async function saveRoleFromEditor() {
-		if (!accessToken || savingRole || rolesUI !== 'detail') return;
-		roleSaveError = '';
-		savingRole = true;
+	async function saveEditor() {
+		if (!accessToken || !editorOpen || editorSaving) return;
+		editorError = '';
+		editorSaving = true;
 		try {
-			if (detailIsNew) {
-				const name = detailName.trim();
+			if (editorIsNew) {
+				const name = editorName.trim();
 				if (!name) {
-					savingRole = false;
+					editorError = 'Role name is required.';
 					return;
 				}
-				await createRole(accessToken, name, detailDescription.trim() || null);
-			} else if (detailRoleId != null) {
-				await updateRoleDescription(
-					accessToken,
-					detailRoleId,
-					detailDescription.trim() || null
-				);
+				const exists = await roleNameExists(accessToken, name);
+				if (exists) {
+					editorError = `Name '${name}' already exists`;
+					return;
+				}
+				await createRole(accessToken, name, editorDescription.trim() || null);
+			} else if (editorRoleId != null) {
+				await updateRoleDescription(accessToken, editorRoleId, editorDescription.trim() || null);
 			}
-			onRolesChanged();
-			openRoleList();
+			await onRolesChanged();
+			closeEditor();
 		} catch (e) {
-			roleSaveError = e instanceof Error ? e.message : String(e);
+			const message = e instanceof Error ? e.message : String(e);
+			if (message.toLowerCase().includes('already exists')) {
+				const attemptedName = editorName.trim();
+				editorError = attemptedName
+					? `Name '${attemptedName}' already exists`
+					: 'Role name already exists.';
+			} else {
+				editorError = message;
+			}
 		} finally {
-			savingRole = false;
+			editorSaving = false;
 		}
-	}
-
-	function handleDeleteRole(r: RoleRow, e: MouseEvent) {
-		if (detailRoleId === r.id) {
-			openRoleList();
-		}
-		onDeleteRole(r, e);
-	}
-
-	function handleSubmit(e: SubmitEvent) {
-		e.preventDefault();
-		if (sendDisabled()) return;
-		void saveRoleFromEditor();
-	}
-
-	export function resetToList() {
-		openRoleList();
 	}
 </script>
 
-<ScrollArea class="min-h-0 flex-1 rounded-md border border-input bg-field">
-	<div class="min-h-full space-y-2 p-3">
-		{#if rolesLoading}
-			<p class="text-sm text-muted-foreground">Loading roles…</p>
-		{/if}
-		{#if rolesLoadError}
-			<p class="text-sm text-destructive">{rolesLoadError}</p>
-		{/if}
-		{#if rolesUI === 'list'}
-			<ul class="space-y-1.5">
-				<li>
-					<button
+<Button
+	type="button"
+	size="sm"
+	variant="outline"
+	class="header-control-btn h-8 w-full justify-start truncate px-2 text-sm disabled:opacity-100"
+	disabled
+	aria-label={editorOpen ? 'Editing role' : 'Signed in user'}
+	onclick={closeEditor}
+>
+	{editorOpen ? editorName || 'New role' : displayName}
+</Button>
+
+<div class="min-h-0 flex-1">
+	{#if editorOpen}
+		<div class="flex h-full min-h-0 flex-col gap-2">
+			{#if editorIsNew}
+				<div class="shrink-0 space-y-2">
+					<Input
+						type="text"
+						bind:value={editorName}
+						oninput={() => {
+							editorError = '';
+						}}
+						placeholder="Role name"
+						disabled={editorSaving}
+						autocomplete="off"
+						class="h-8 text-sm"
+					/>
+					{#if editorError}
+						<p class="text-sm text-destructive">{editorError}</p>
+					{/if}
+				</div>
+			{/if}
+			<div class="min-h-0 flex-1">
+				<textarea
+					class="h-full min-h-[10rem] w-full resize-none rounded-md border border-input bg-field px-2 py-1.5 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+					placeholder={editorIsNew
+						? 'Describe how this role should behave...'
+						: 'Edit role description...'}
+					bind:value={editorDescription}
+					disabled={editorSaving}
+				></textarea>
+				{#if editorError && !editorIsNew}
+					<p class="mt-2 text-xs text-destructive">{editorError}</p>
+				{/if}
+			</div>
+			<div class="shrink-0">
+				<div class="flex gap-2">
+					<Button
 						type="button"
-						class="menu-action-btn w-full rounded-md border border-border bg-background/80 px-3 py-2.5 text-left text-sm font-medium text-foreground transition-colors hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline"
-						onclick={openNewRoleEditor}
+						variant="outline"
+						size="sm"
+						class="header-control-btn flex-1"
+						onclick={closeEditor}
 					>
-						New role
-					</button>
-				</li>
+						Exit
+					</Button>
+					<Button
+						type="button"
+						size="sm"
+						class="flex-1"
+						disabled={editorSaving || (editorIsNew && !editorName.trim())}
+						onclick={() => void saveEditor()}
+					>
+						Save
+					</Button>
+				</div>
+			</div>
+		</div>
+	{:else}
+		<div class="min-h-0 h-full space-y-2 overflow-y-auto">
+			{#if rolesLoading}
+				<p class="text-xs text-muted-foreground">Loading roles…</p>
+			{/if}
+			{#if rolesLoadError}
+				<p class="text-xs text-destructive">{rolesLoadError}</p>
+			{/if}
+			<Button
+				type="button"
+				variant="outline"
+				size="sm"
+				class="header-control-btn w-full justify-start"
+				onclick={openNewRoleEditor}
+			>
+				New role
+			</Button>
+			<ul class="space-y-1.5">
 				{#each roleRows as r (r.id)}
-					<li class="flex items-center gap-1.5">
+					<li class="flex items-center gap-1">
 						<button
 							type="button"
-							class="menu-action-btn min-w-0 flex-1 rounded-md border px-3 py-2.5 text-left text-sm text-foreground transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline {selectedRoleId ===
+							class="menu-action-btn role-option-btn min-w-0 flex-1 truncate rounded-md border px-2 py-1.5 text-left text-sm transition-colors {selectedRoleId ===
 							r.id
-								? 'border-primary/50 bg-muted/40'
-								: 'border-border bg-background/40 hover:bg-muted/50'}"
-							onclick={() => onSelectRole(r)}
+								? 'border-primary/55'
+								: 'border-border bg-background/40 dark:border-input dark:bg-input/30'}"
+							onclick={() => {
+								onSelectRole(r);
+							}}
 							aria-pressed={selectedRoleId === r.id}
-							aria-label={`Use role ${r.name} for chat`}
+							data-selected={selectedRoleId === r.id ? 'true' : undefined}
 						>
 							{r.name}
 						</button>
@@ -167,7 +222,7 @@
 							size="icon-sm"
 							class="menu-action-btn shrink-0"
 							disabled={deletingRoleId === r.id}
-							onclick={(e: MouseEvent) => handleDeleteRole(r, e)}
+							onclick={(e: MouseEvent) => onDeleteRole(r, e)}
 							aria-label={`Delete role ${r.name}`}
 						>
 							<Trash2 class="size-4" aria-hidden="true" />
@@ -175,55 +230,33 @@
 					</li>
 				{/each}
 			</ul>
-		{:else}
-			<div class="flex flex-col gap-3">
-				<Button
-					type="button"
-					variant="ghost"
-					size="sm"
-					class="menu-action-btn w-fit gap-1.5 px-2"
-					onclick={openRoleList}
-				>
-					<ArrowLeft class="size-4" aria-hidden="true" />
-					All roles
-				</Button>
-				<label class="sr-only" for="role-description-editor">Role description</label>
-				<textarea
-					id="role-description-editor"
-					class="min-h-[14rem] w-full resize-y rounded-md border border-input bg-field px-2.5 py-2 text-sm shadow-xs transition-[color,box-shadow] outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
-					placeholder={detailIsNew
-						? 'Describe how this role should behave, including tone, expertise, and boundaries…'
-						: 'Edit the description for this role…'}
-					bind:value={detailDescription}
-					disabled={savingRole}
-					rows={10}
-				></textarea>
-			</div>
-		{/if}
-	</div>
-</ScrollArea>
-{#if roleSaveError}
-	<p class="text-sm text-destructive">{roleSaveError}</p>
-{/if}
-<form class="flex gap-2" onsubmit={handleSubmit}>
-	{#if rolesUI === 'list'}
-		<Input type="text" value="" disabled placeholder="" class="flex-1" />
-	{:else}
-		<Input
-			type="text"
-			bind:value={detailName}
-			readonly={!detailIsNew}
-			placeholder={detailIsNew ? 'Role name' : ''}
-			disabled={savingRole}
-			autocomplete="off"
-			class="flex-1"
-		/>
+		</div>
 	{/if}
-	<Button
-		type="submit"
-		disabled={sendDisabled()}
-		aria-label={rolesUI === 'list' ? 'Save disabled' : 'Save role'}
-	>
-		<SendHorizontal class="size-4" />
-	</Button>
-</form>
+</div>
+
+<style>
+	:global(html:not(.dark) .menu-action-btn:hover) {
+		background-color: color-mix(in oklch, var(--primary) 22%, var(--background)) !important;
+		border-color: color-mix(in oklch, var(--primary) 56%, var(--border)) !important;
+		color: color-mix(in oklch, var(--foreground) 82%, var(--primary));
+	}
+
+	:global(html:not(.dark) .role-option-btn[data-selected='true']) {
+		background-color: color-mix(in oklch, var(--primary) 22%, var(--background)) !important;
+		border-color: color-mix(in oklch, var(--primary) 62%, var(--border)) !important;
+		color: color-mix(in oklch, var(--foreground) 88%, var(--primary));
+	}
+
+	:global(html.dark .role-option-btn:hover) {
+		background-color: color-mix(in oklch, var(--card) 72%, black 28%) !important;
+		border-color: color-mix(in oklch, var(--primary) 58%, var(--border)) !important;
+		color: color-mix(in oklch, var(--foreground) 90%, var(--primary));
+	}
+
+	:global(html.dark .role-option-btn[data-selected='true']) {
+		background-color: color-mix(in oklch, var(--card) 72%, black 28%) !important;
+		border-color: color-mix(in oklch, var(--primary) 60%, var(--border)) !important;
+		color: color-mix(in oklch, var(--foreground) 94%, var(--primary));
+		box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--primary) 34%, transparent);
+	}
+</style>

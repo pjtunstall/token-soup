@@ -9,25 +9,19 @@
 	} from '$lib/chat';
 	import {
 		fetchRoles,
-		createRole,
-		updateRoleDescription,
 		deleteRole,
-		roleNameExists,
 		type RoleRow
 	} from '$lib/roles';
 	import { fetchChats, fetchChat, type ChatSummaryRow } from '$lib/chats';
 	import { getSupabase } from '$lib/supabase';
 	import type { Session } from '@supabase/supabase-js';
 	import { Card, CardContent } from '$lib/components/ui/card';
-	import { Button } from '$lib/components/ui/button';
-	import { Input } from '$lib/components/ui/input';
 	import { toggleTheme as applyToggleTheme } from '$lib/theme';
-	import Feather from '@lucide/svelte/icons/feather';
-	import Trash2 from '@lucide/svelte/icons/trash-2';
 	import AuthForm from './AuthForm.svelte';
 	import ChatsGallery from './ChatsGallery.svelte';
 	import AppHeader from './AppHeader.svelte';
 	import ChatPanel from './ChatPanel.svelte';
+	import RolesPanel from './RolesPanel.svelte';
 
 	let authState = $state<'loading' | 'signed_out' | 'signed_in'>('loading');
 	let session = $state<Session | null>(null);
@@ -59,13 +53,7 @@
 	let deletingRoleId = $state<number | null>(null);
 	/** Persisted AI persona (`public.roles`); drives system prompt and assistant label. */
 	let selectedRoleId = $state<number | null>(null);
-	let roleEditorOpen = $state(false);
-	let roleEditorIsNew = $state(false);
-	let roleEditorRoleId = $state<number | null>(null);
-	let roleEditorName = $state('');
-	let roleEditorDescription = $state('');
-	let roleEditorSaving = $state(false);
-	let roleEditorError = $state('');
+	let rolesPanelRef = $state<RolesPanel | null>(null);
 
 	let chatRows = $state<ChatSummaryRow[]>([]);
 	let chatsLoadError = $state('');
@@ -136,75 +124,6 @@
 			} catch {
 				/* ignore */
 			}
-		}
-	}
-
-	function closeRoleEditor() {
-		roleEditorOpen = false;
-		roleEditorIsNew = false;
-		roleEditorRoleId = null;
-		roleEditorName = '';
-		roleEditorDescription = '';
-		roleEditorError = '';
-		roleEditorSaving = false;
-	}
-
-	function openNewRoleEditor() {
-		roleEditorOpen = true;
-		roleEditorIsNew = true;
-		roleEditorRoleId = null;
-		roleEditorName = '';
-		roleEditorDescription = '';
-		roleEditorError = '';
-	}
-
-	function openExistingRoleEditor(r: RoleRow) {
-		roleEditorOpen = true;
-		roleEditorIsNew = false;
-		roleEditorRoleId = r.id;
-		roleEditorName = r.name;
-		roleEditorDescription = r.description ?? '';
-		roleEditorError = '';
-	}
-
-	async function saveRoleEditor() {
-		if (!session?.access_token || !roleEditorOpen || roleEditorSaving) return;
-		roleEditorError = '';
-		roleEditorSaving = true;
-		try {
-			if (roleEditorIsNew) {
-				const name = roleEditorName.trim();
-				if (!name) {
-					roleEditorError = 'Role name is required.';
-					return;
-				}
-				const exists = await roleNameExists(session.access_token, name);
-				if (exists) {
-					roleEditorError = `Name '${name}' already exists`;
-					return;
-				}
-				await createRole(session.access_token, name, roleEditorDescription.trim() || null);
-			} else if (roleEditorRoleId != null) {
-				await updateRoleDescription(
-					session.access_token,
-					roleEditorRoleId,
-					roleEditorDescription.trim() || null
-				);
-			}
-			await loadRoleRows();
-			closeRoleEditor();
-		} catch (e) {
-			const message = e instanceof Error ? e.message : String(e);
-			if (message.toLowerCase().includes('already exists')) {
-				const attemptedName = roleEditorName.trim();
-				roleEditorError = attemptedName
-					? `Name '${attemptedName}' already exists`
-					: 'Role name already exists.';
-			} else {
-				roleEditorError = message;
-			}
-		} finally {
-			roleEditorSaving = false;
 		}
 	}
 
@@ -372,7 +291,7 @@
 		roleRows = [];
 		rolesLoadError = '';
 		selectedRoleId = null;
-		closeRoleEditor();
+		rolesPanelRef?.closeEditor();
 		chatRows = [];
 		chatsLoadError = '';
 	}
@@ -401,7 +320,7 @@
 	});
 
 	async function sendMessage() {
-		closeRoleEditor();
+		rolesPanelRef?.closeEditor();
 		if (signedInMain !== 'chat' || awaitingAi || !session?.access_token || !messageInput.trim())
 			return;
 		const wasEmpty = messages.length === 0;
@@ -467,7 +386,7 @@
 	}
 
 	function stopMessage() {
-		closeRoleEditor();
+		rolesPanelRef?.closeEditor();
 		abortController?.abort();
 		awaitingAi = false;
 		activeAiJobId = '';
@@ -478,7 +397,7 @@
 	}
 
 	function handleSpeechBubble() {
-		closeRoleEditor();
+		rolesPanelRef?.closeEditor();
 		signedInMain = 'chat';
 	}
 
@@ -497,14 +416,14 @@
 	}
 
 	function handleChatGallery() {
-		closeRoleEditor();
+		rolesPanelRef?.closeEditor();
 		signedInMain = 'chats';
 		void loadChatRows();
 	}
 
 	async function openChatFromList(c: ChatSummaryRow) {
 		if (!session?.access_token) return;
-		closeRoleEditor();
+		rolesPanelRef?.closeEditor();
 		abortController?.abort();
 		awaitingAi = false;
 		activeAiJobId = '';
@@ -528,7 +447,7 @@
 	}
 
 	function handleNewChat() {
-		closeRoleEditor();
+		rolesPanelRef?.closeEditor();
 		abortController?.abort();
 		awaitingAi = false;
 		activeAiJobId = '';
@@ -641,168 +560,22 @@
 						class="flex w-56 shrink-0 flex-col gap-2 rounded-md border border-border/70 bg-field/45 p-2"
 						aria-label="Roles panel"
 					>
-						<Button
-							type="button"
-							size="sm"
-							variant="outline"
-							class="header-control-btn h-8 w-full justify-start truncate px-2 text-sm disabled:opacity-100"
-							disabled
-							aria-label={roleEditorOpen ? 'Editing role' : 'Signed in user'}
-							onclick={() => {
-								closeRoleEditor();
-							}}
-						>
-							{roleEditorOpen ? roleEditorName || 'New role' : getDisplayName(session)}
-						</Button>
-						<div class="min-h-0 flex-1">
-							{#if roleEditorOpen}
-								<div class="flex h-full min-h-0 flex-col gap-2">
-									{#if roleEditorIsNew}
-										<div class="shrink-0 space-y-2">
-											<Input
-												type="text"
-												bind:value={roleEditorName}
-												oninput={() => {
-													roleEditorError = '';
-												}}
-												placeholder="Role name"
-												disabled={roleEditorSaving}
-												autocomplete="off"
-												class="h-8 text-sm"
-											/>
-											{#if roleEditorError}
-												<p class="text-sm text-destructive">{roleEditorError}</p>
-											{/if}
-										</div>
-									{/if}
-									<div class="min-h-0 flex-1">
-										<textarea
-											class="h-full min-h-[10rem] w-full resize-none rounded-md border border-input bg-field px-2 py-1.5 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-											placeholder={roleEditorIsNew
-												? 'Describe how this role should behave...'
-												: 'Edit role description...'}
-											bind:value={roleEditorDescription}
-											disabled={roleEditorSaving}
-										></textarea>
-										{#if roleEditorError && !roleEditorIsNew}
-											<p class="mt-2 text-xs text-destructive">{roleEditorError}</p>
-										{/if}
-									</div>
-									<div class="shrink-0">
-										<div class="flex gap-2">
-											<Button
-												type="button"
-												variant="outline"
-												size="sm"
-												class="header-control-btn flex-1"
-												onclick={closeRoleEditor}
-											>
-												Exit
-											</Button>
-											<Button
-												type="button"
-												size="sm"
-												class="flex-1"
-												disabled={roleEditorSaving || (roleEditorIsNew && !roleEditorName.trim())}
-												onclick={() => void saveRoleEditor()}
-											>
-												Save
-											</Button>
-										</div>
-									</div>
-								</div>
-							{:else}
-								<div class="min-h-0 h-full space-y-2 overflow-y-auto">
-								{#if rolesLoading}
-									<p class="text-xs text-muted-foreground">Loading roles…</p>
-								{/if}
-								{#if rolesLoadError}
-									<p class="text-xs text-destructive">{rolesLoadError}</p>
-								{/if}
-								<Button
-									type="button"
-									variant="outline"
-									size="sm"
-									class="header-control-btn w-full justify-start"
-									onclick={openNewRoleEditor}
-								>
-									New role
-								</Button>
-								<ul class="space-y-1.5">
-									{#each roleRows as r (r.id)}
-										<li class="flex items-center gap-1">
-											<button
-												type="button"
-												class="menu-action-btn role-option-btn min-w-0 flex-1 truncate rounded-md border px-2 py-1.5 text-left text-sm transition-colors {selectedRoleId ===
-												r.id
-													? 'border-primary/55'
-													: 'border-border bg-background/40 dark:border-input dark:bg-input/30'}"
-												onclick={() => {
-													selectRoleAsCurrent(r);
-												}}
-												aria-pressed={selectedRoleId === r.id}
-												data-selected={selectedRoleId === r.id ? 'true' : undefined}
-											>
-												{r.name}
-											</button>
-											<Button
-												type="button"
-												variant="outline"
-												size="icon-sm"
-												class="menu-action-btn shrink-0"
-												onclick={() => openExistingRoleEditor(r)}
-												aria-label={`Edit role ${r.name}`}
-											>
-												<Feather class="size-4" aria-hidden="true" />
-											</Button>
-											<Button
-												type="button"
-												variant="outline"
-												size="icon-sm"
-												class="menu-action-btn shrink-0"
-												disabled={deletingRoleId === r.id}
-												onclick={(e: MouseEvent) => void deleteRoleRow(r, e)}
-												aria-label={`Delete role ${r.name}`}
-											>
-												<Trash2 class="size-4" aria-hidden="true" />
-											</Button>
-										</li>
-									{/each}
-								</ul>
-								</div>
-							{/if}
-						</div>
+						<RolesPanel
+							bind:this={rolesPanelRef}
+							{roleRows}
+							{rolesLoading}
+							{rolesLoadError}
+							{selectedRoleId}
+							{deletingRoleId}
+							displayName={getDisplayName(session)}
+							accessToken={session?.access_token ?? ''}
+							onSelectRole={selectRoleAsCurrent}
+							onRolesChanged={loadRoleRows}
+							onDeleteRole={deleteRoleRow}
+						/>
 					</aside>
 				</div>
 			{/if}
 		</CardContent>
 	</Card>
-
 </main>
-
-<style>
-	:global(html:not(.dark) .menu-action-btn:hover) {
-		background-color: color-mix(in oklch, var(--primary) 22%, var(--background)) !important;
-		border-color: color-mix(in oklch, var(--primary) 56%, var(--border)) !important;
-		color: color-mix(in oklch, var(--foreground) 82%, var(--primary));
-	}
-
-	:global(html:not(.dark) .role-option-btn[data-selected='true']) {
-		background-color: color-mix(in oklch, var(--primary) 22%, var(--background)) !important;
-		border-color: color-mix(in oklch, var(--primary) 62%, var(--border)) !important;
-		color: color-mix(in oklch, var(--foreground) 88%, var(--primary));
-	}
-
-	:global(html.dark .role-option-btn:hover) {
-		background-color: color-mix(in oklch, var(--card) 72%, black 28%) !important;
-		border-color: color-mix(in oklch, var(--primary) 58%, var(--border)) !important;
-		color: color-mix(in oklch, var(--foreground) 90%, var(--primary));
-	}
-
-	:global(html.dark .role-option-btn[data-selected='true']) {
-		background-color: color-mix(in oklch, var(--card) 72%, black 28%) !important;
-		border-color: color-mix(in oklch, var(--primary) 60%, var(--border)) !important;
-		color: color-mix(in oklch, var(--foreground) 94%, var(--primary));
-		box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--primary) 34%, transparent);
-	}
-</style>
