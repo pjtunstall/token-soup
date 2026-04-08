@@ -701,6 +701,15 @@
 
 	/** Header icon hover labels (fixed; panel uses bg-card + shadow-card to read off the header). */
 	let headerHoverTip = $state<{ text: string; x: number; y: number } | null>(null);
+	let headerLeftEl = $state<HTMLElement | null>(null);
+	let headerControlsEl = $state<HTMLElement | null>(null);
+	let headerLeftInset = $state(0);
+	let headerRightInset = $state(0);
+
+	function updateHeaderCenterInsets() {
+		headerLeftInset = headerLeftEl?.offsetWidth ?? 0;
+		headerRightInset = headerControlsEl?.offsetWidth ?? 0;
+	}
 
 	function showHeaderHoverTip(text: string, e: PointerEvent) {
 		const el = e.currentTarget;
@@ -713,6 +722,18 @@
 		headerHoverTip = null;
 	}
 
+	onMount(() => {
+		const ro = new ResizeObserver(() => updateHeaderCenterInsets());
+		if (headerLeftEl) ro.observe(headerLeftEl);
+		if (headerControlsEl) ro.observe(headerControlsEl);
+		updateHeaderCenterInsets();
+		window.addEventListener('resize', updateHeaderCenterInsets);
+		return () => {
+			ro.disconnect();
+			window.removeEventListener('resize', updateHeaderCenterInsets);
+		};
+	});
+
 	onDestroy(() => {
 		abortController?.abort();
 	});
@@ -720,10 +741,10 @@
 
 <main class="mx-auto flex min-h-screen w-full max-w-3xl items-center p-4">
 	<Card class="flex h-[80vh] min-h-0 w-full flex-col">
-		<CardHeader class="flex shrink-0 flex-row items-center gap-2 space-y-0">
-			<div class="min-w-0 shrink space-y-1">
+		<CardHeader class="relative flex shrink-0 flex-row items-center gap-2 space-y-0">
+			<div bind:this={headerLeftEl} class="min-w-0 w-fit max-w-[20rem] shrink space-y-1">
 				<CardTitle class="text-primary">Token Soup</CardTitle>
-				<CardDescription
+				<CardDescription class="chat-subtitle-clamp break-words"
 					>{signedInMain === 'roles'
 						? 'Roles'
 						: signedInMain === 'chats'
@@ -731,21 +752,8 @@
 							: sessionSubtitle}</CardDescription
 				>
 			</div>
-			{#if authState === 'signed_in'}
-				<div
-					class="flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 px-2 text-center"
-				>
-					<p class="truncate text-base leading-snug font-medium text-muted-foreground">
-						{getDisplayName(session)}
-					</p>
-					<p class="truncate text-base leading-snug font-medium text-foreground">
-						{activeAssistantName()}
-					</p>
-				</div>
-			{:else}
-				<div class="min-w-0 flex-1" aria-hidden="true"></div>
-			{/if}
-			<div class="flex shrink-0 items-center gap-2">
+			<div class="min-w-0 flex-1" aria-hidden="true"></div>
+			<div bind:this={headerControlsEl} class="flex shrink-0 items-center gap-2">
 				<Button
 					type="button"
 					variant="outline"
@@ -820,6 +828,22 @@
 					<Badge variant="secondary">…</Badge>
 				{/if}
 			</div>
+			{#if authState === 'signed_in'}
+				<div
+					class="pointer-events-none absolute inset-y-0 flex items-center"
+					style:left="{headerLeftInset + 8}px"
+					style:right="{headerRightInset + 8}px"
+				>
+					<div class="mx-auto flex min-w-0 w-fit max-w-full flex-col items-center justify-center px-2 text-center">
+						<p class="truncate text-base leading-snug font-medium text-muted-foreground">
+							{getDisplayName(session)}
+						</p>
+						<p class="truncate text-base leading-snug font-medium text-foreground">
+							{activeAssistantName()}
+						</p>
+					</div>
+				</div>
+			{/if}
 		</CardHeader>
 		<CardContent class="flex min-h-0 flex-1 flex-col gap-3">
 			{#if persistWarning}
@@ -1222,3 +1246,12 @@
 		</div>
 	{/if}
 </main>
+
+<style>
+	.chat-subtitle-clamp {
+		display: -webkit-box;
+		-webkit-box-orient: vertical;
+		-webkit-line-clamp: 2;
+		overflow: hidden;
+	}
+</style>

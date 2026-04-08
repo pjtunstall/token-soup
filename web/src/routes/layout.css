@@ -13,53 +13,54 @@ html.dark {
 }
 
 /*
-	Palette: violet-indigo (brand, assistant, chrome) + sky (user role).
-	All neutrals carry a slight shared hue so the UI feels warm and intentional.
+	Palette: warm amber-peach neutrals with terracotta accents.
+	Daytime mode leans sunlit and cozy; dark mode stays unchanged.
 */
 :root {
 	/* Brighter canvas so the card can sit clearly darker */
-	--background: oklch(0.99 0.016 268);
-	--foreground: oklch(0.22 0.045 268);
+	--background: oklch(0.978 0.018 82);
+	--foreground: oklch(0.24 0.04 62);
 	/* Stronger step down from page bg for clear figure/ground */
-	--card: oklch(0.915 0.058 268);
-	--card-foreground: oklch(0.22 0.045 268);
-	--popover: oklch(0.915 0.058 268);
-	--popover-foreground: oklch(0.22 0.045 268);
-	--primary: oklch(0.46 0.2 272);
-	--primary-foreground: oklch(0.99 0.015 272);
-	--secondary: oklch(0.935 0.045 265);
-	--secondary-foreground: oklch(0.28 0.08 265);
-	--muted: oklch(0.955 0.028 265);
-	--muted-foreground: oklch(0.46 0.06 265);
-	--accent: oklch(0.925 0.055 265);
-	--accent-foreground: oklch(0.28 0.08 265);
+	--card: oklch(0.925 0.052 78);
+	--card-foreground: oklch(0.24 0.04 62);
+	--popover: oklch(0.925 0.052 78);
+	--popover-foreground: oklch(0.24 0.04 62);
+	--primary: oklch(0.56 0.16 44);
+	--primary-foreground: oklch(0.99 0.01 85);
+	--secondary: oklch(0.95 0.038 84);
+	--secondary-foreground: oklch(0.31 0.075 52);
+	--muted: oklch(0.965 0.024 84);
+	--muted-foreground: oklch(0.49 0.052 56);
+	--accent: oklch(0.94 0.048 74);
+	--accent-foreground: oklch(0.31 0.075 52);
 	--destructive: oklch(0.577 0.245 27.325);
-	--border: oklch(0.88 0.045 265);
+	--border: oklch(0.89 0.038 78);
 	/* Border color for inputs; fill uses --field */
-	--input: oklch(0.88 0.045 265);
-	/* Transcript + composer: same lightness as outline controls (e.g. Sign out) */
+	--input: oklch(0.89 0.038 78);
+	/* Transcript + composer: match light outline button surface */
 	--field: var(--background);
-	--ring: oklch(0.56 0.17 268);
-	--chart-1: oklch(0.62 0.2 268);
-	--chart-2: oklch(0.55 0.18 255);
-	--chart-3: oklch(0.52 0.16 280);
-	--chart-4: oklch(0.58 0.14 240);
-	--chart-5: oklch(0.48 0.14 285);
+	--ring: oklch(0.59 0.14 46);
+	--chart-1: oklch(0.67 0.17 46);
+	--chart-2: oklch(0.62 0.14 62);
+	--chart-3: oklch(0.59 0.12 30);
+	--chart-4: oklch(0.64 0.11 88);
+	--chart-5: oklch(0.53 0.1 20);
 	--radius: 0.625rem;
-	--sidebar: oklch(0.97 0.025 265);
-	--sidebar-foreground: oklch(0.22 0.045 268);
-	--sidebar-primary: oklch(0.46 0.2 272);
-	--sidebar-primary-foreground: oklch(0.99 0.015 272);
-	--sidebar-accent: oklch(0.93 0.05 265);
-	--sidebar-accent-foreground: oklch(0.28 0.08 265);
-	--sidebar-border: oklch(0.88 0.045 265);
-	--sidebar-ring: oklch(0.56 0.17 268);
-	/* Chat bubbles — match sky / violet accents */
-	--bubble-user: oklch(0.935 0.065 230);
-	--bubble-user-border: oklch(0.58 0.14 230 / 0.42);
-	--bubble-assistant: oklch(0.935 0.055 282);
-	--bubble-assistant-border: oklch(0.58 0.15 282 / 0.4);
-	--card-shadow: 0 14px 44px -14px color-mix(in oklch, var(--primary) 22%, transparent),
+	--sidebar: oklch(0.972 0.021 82);
+	--sidebar-foreground: oklch(0.24 0.04 62);
+	--sidebar-primary: oklch(0.56 0.16 44);
+	--sidebar-primary-foreground: oklch(0.99 0.01 85);
+	--sidebar-accent: oklch(0.942 0.043 80);
+	--sidebar-accent-foreground: oklch(0.31 0.075 52);
+	--sidebar-border: oklch(0.89 0.038 78);
+	--sidebar-ring: oklch(0.59 0.14 46);
+	/* Chat bubbles — warm peach (user) and soft apricot (assistant) */
+	--bubble-user: oklch(0.94 0.06 56);
+	--bubble-user-border: oklch(0.62 0.12 50 / 0.42);
+	--bubble-assistant: oklch(0.942 0.05 74);
+	--bubble-assistant-border: oklch(0.61 0.11 68 / 0.4);
+	--card-shadow:
+		0 14px 44px -14px color-mix(in oklch, var(--primary) 22%, transparent),
 		0 2px 10px -4px color-mix(in oklch, var(--foreground) 8%, transparent);
 }
 
@@ -102,7 +103,8 @@ html.dark {
 	--bubble-user-border: oklch(0.62 0.14 230 / 0.45);
 	--bubble-assistant: oklch(0.31 0.06 282);
 	--bubble-assistant-border: oklch(0.62 0.14 282 / 0.42);
-	--card-shadow: 0 18px 48px -16px color-mix(in oklch, var(--primary) 28%, transparent),
+	--card-shadow:
+		0 18px 48px -16px color-mix(in oklch, var(--primary) 28%, transparent),
 		0 2px 12px -4px color-mix(in oklch, var(--foreground) 12%, transparent);
 }
 
