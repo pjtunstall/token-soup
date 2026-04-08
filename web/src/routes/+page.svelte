@@ -627,59 +627,66 @@
 							variant="outline"
 							class="header-control-btn h-8 w-full justify-start truncate px-2 text-sm font-medium"
 							disabled
-							aria-label="Signed in user"
+							aria-label={roleEditorOpen ? 'Editing role' : 'Signed in user'}
 							onclick={() => {
 								closeRoleEditor();
 							}}
 						>
-							{getDisplayName(session)}
+							{roleEditorOpen ? roleEditorName || 'New role' : getDisplayName(session)}
 						</Button>
-						<div class="min-h-0 flex-1 space-y-2 overflow-y-auto">
+						<div class="min-h-0 flex-1">
 							{#if roleEditorOpen}
-								<div class="space-y-2">
-									<Input
-										type="text"
-										bind:value={roleEditorName}
-										readonly={!roleEditorIsNew}
-										placeholder={roleEditorIsNew ? 'Role name' : ''}
-										disabled={roleEditorSaving}
-										autocomplete="off"
-										class="h-8 text-sm"
-									/>
-									<textarea
-										class="min-h-[10rem] w-full resize-y rounded-md border border-input bg-field px-2 py-1.5 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-										placeholder={roleEditorIsNew
-											? 'Describe how this role should behave...'
-											: 'Edit role description...'}
-										bind:value={roleEditorDescription}
-										disabled={roleEditorSaving}
-										rows={8}
-									></textarea>
-									{#if roleEditorError}
-										<p class="text-xs text-destructive">{roleEditorError}</p>
+								<div class="flex h-full min-h-0 flex-col gap-2">
+									{#if roleEditorIsNew}
+										<div class="shrink-0 space-y-2">
+											<Input
+												type="text"
+												bind:value={roleEditorName}
+												placeholder="Role name"
+												disabled={roleEditorSaving}
+												autocomplete="off"
+												class="h-8 text-sm"
+											/>
+										</div>
 									{/if}
-									<div class="flex gap-2">
-										<Button
-											type="button"
-											variant="outline"
-											size="sm"
-											class="header-control-btn flex-1"
-											onclick={closeRoleEditor}
-										>
-											Exit
-										</Button>
-										<Button
-											type="button"
-											size="sm"
-											class="flex-1"
-											disabled={roleEditorSaving || (roleEditorIsNew && !roleEditorName.trim())}
-											onclick={() => void saveRoleEditor()}
-										>
-											Save
-										</Button>
+									<div class="min-h-0 flex-1">
+										<textarea
+											class="h-full min-h-[10rem] w-full resize-none rounded-md border border-input bg-field px-2 py-1.5 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+											placeholder={roleEditorIsNew
+												? 'Describe how this role should behave...'
+												: 'Edit role description...'}
+											bind:value={roleEditorDescription}
+											disabled={roleEditorSaving}
+										></textarea>
+										{#if roleEditorError}
+											<p class="mt-2 text-xs text-destructive">{roleEditorError}</p>
+										{/if}
+									</div>
+									<div class="shrink-0">
+										<div class="flex gap-2">
+											<Button
+												type="button"
+												variant="outline"
+												size="sm"
+												class="header-control-btn flex-1"
+												onclick={closeRoleEditor}
+											>
+												Exit
+											</Button>
+											<Button
+												type="button"
+												size="sm"
+												class="flex-1"
+												disabled={roleEditorSaving || (roleEditorIsNew && !roleEditorName.trim())}
+												onclick={() => void saveRoleEditor()}
+											>
+												Save
+											</Button>
+										</div>
 									</div>
 								</div>
 							{:else}
+								<div class="min-h-0 h-full space-y-2 overflow-y-auto">
 								{#if rolesLoading}
 									<p class="text-xs text-muted-foreground">Loading roles…</p>
 								{/if}
@@ -735,6 +742,7 @@
 										</li>
 									{/each}
 								</ul>
+								</div>
 							{/if}
 						</div>
 					</aside>

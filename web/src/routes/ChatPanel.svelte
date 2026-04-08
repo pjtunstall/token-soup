@@ -46,4 +46,6 @@
 	</div>
 </ScrollArea>
 
-<ComposeBar bind:messageInput {awaitingAi} onSubmit={onSend} {onStop} />
+<div class="mt-3">
+	<ComposeBar bind:messageInput {awaitingAi} onSubmit={onSend} {onStop} />
+</div>
