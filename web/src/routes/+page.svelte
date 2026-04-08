@@ -7,7 +7,14 @@
 		type AIStreamEvent,
 		type ChatMessage
 	} from '$lib/chat';
-	import { fetchRoles, createRole, updateRoleDescription, deleteRole, type RoleRow } from '$lib/roles';
+	import {
+		fetchRoles,
+		createRole,
+		updateRoleDescription,
+		deleteRole,
+		roleNameExists,
+		type RoleRow
+	} from '$lib/roles';
 	import { fetchChats, fetchChat, type ChatSummaryRow } from '$lib/chats';
 	import { getSupabase } from '$lib/supabase';
 	import type { Session } from '@supabase/supabase-js';
@@ -171,6 +178,11 @@
 					roleEditorError = 'Role name is required.';
 					return;
 				}
+				const exists = await roleNameExists(session.access_token, name);
+				if (exists) {
+					roleEditorError = `Name '${name}' already exists`;
+					return;
+				}
 				await createRole(session.access_token, name, roleEditorDescription.trim() || null);
 			} else if (roleEditorRoleId != null) {
 				await updateRoleDescription(
@@ -182,7 +194,15 @@
 			await loadRoleRows();
 			closeRoleEditor();
 		} catch (e) {
-			roleEditorError = e instanceof Error ? e.message : String(e);
+			const message = e instanceof Error ? e.message : String(e);
+			if (message.toLowerCase().includes('already exists')) {
+				const attemptedName = roleEditorName.trim();
+				roleEditorError = attemptedName
+					? `Name '${attemptedName}' already exists`
+					: 'Role name already exists.';
+			} else {
+				roleEditorError = message;
+			}
 		} finally {
 			roleEditorSaving = false;
 		}
@@ -642,11 +662,17 @@
 											<Input
 												type="text"
 												bind:value={roleEditorName}
+												oninput={() => {
+													roleEditorError = '';
+												}}
 												placeholder="Role name"
 												disabled={roleEditorSaving}
 												autocomplete="off"
 												class="h-8 text-sm"
 											/>
+											{#if roleEditorError}
+												<p class="text-sm text-destructive">{roleEditorError}</p>
+											{/if}
 										</div>
 									{/if}
 									<div class="min-h-0 flex-1">
@@ -658,7 +684,7 @@
 											bind:value={roleEditorDescription}
 											disabled={roleEditorSaving}
 										></textarea>
-										{#if roleEditorError}
+										{#if roleEditorError && !roleEditorIsNew}
 											<p class="mt-2 text-xs text-destructive">{roleEditorError}</p>
 										{/if}
 									</div>

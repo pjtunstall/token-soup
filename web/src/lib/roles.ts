@@ -58,6 +58,14 @@ export async function createRole(
 	return (await res.json()) as RoleRow;
 }
 
+/** GET /api/roles + local match check for name uniqueness. */
+export async function roleNameExists(accessToken: string, name: string): Promise<boolean> {
+	const normalized = name.trim().toLowerCase();
+	if (!normalized) return false;
+	const roles = await fetchRoles(accessToken);
+	return roles.some((r) => r.name.trim().toLowerCase() === normalized);
+}
+
 /** PATCH /api/roles/:id */
 export async function updateRoleDescription(
 	accessToken: string,
