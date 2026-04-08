@@ -744,7 +744,7 @@
 <main class="mx-auto flex min-h-screen w-full max-w-3xl items-center p-4">
 	<Card class="flex h-[80vh] min-h-0 w-full flex-col">
 		<CardHeader class="relative flex shrink-0 flex-row items-center gap-2 space-y-0">
-			<div bind:this={headerLeftEl} class="min-w-0 w-fit max-w-[20rem] shrink space-y-1">
+			<div bind:this={headerLeftEl} class="w-fit max-w-[20rem] min-w-0 shrink space-y-1">
 				<CardTitle class="text-primary">Token Soup</CardTitle>
 				<CardDescription class="chat-subtitle-clamp break-words"
 					>{signedInMain === 'roles'
@@ -760,7 +760,7 @@
 					type="button"
 					variant="outline"
 					size="icon-sm"
-					class="shrink-0"
+					class="header-control-btn shrink-0"
 					onpointerenter={(e) => showHeaderHoverTip('New chat', e)}
 					onpointerleave={hideHeaderHoverTip}
 					onclick={handleNewChat}
@@ -772,7 +772,7 @@
 					type="button"
 					variant={signedInMain === 'chats' ? 'secondary' : 'outline'}
 					size="icon-sm"
-					class="shrink-0"
+					class="header-control-btn shrink-0"
 					onpointerenter={(e) => showHeaderHoverTip('Chats', e)}
 					onpointerleave={hideHeaderHoverTip}
 					onclick={handleChatGallery}
@@ -785,7 +785,7 @@
 					type="button"
 					variant={signedInMain === 'chat' ? 'secondary' : 'outline'}
 					size="icon-sm"
-					class="shrink-0"
+					class="header-control-btn shrink-0"
 					onpointerenter={(e) => showHeaderHoverTip('Current chat', e)}
 					onpointerleave={hideHeaderHoverTip}
 					onclick={handleSpeechBubble}
@@ -798,7 +798,7 @@
 					type="button"
 					variant={signedInMain === 'roles' ? 'secondary' : 'outline'}
 					size="icon-sm"
-					class="shrink-0"
+					class="header-control-btn shrink-0"
 					onpointerenter={(e) => showHeaderHoverTip('Roles', e)}
 					onpointerleave={hideHeaderHoverTip}
 					onclick={handleNewCharacter}
@@ -811,7 +811,7 @@
 					type="button"
 					variant="outline"
 					size="icon-sm"
-					class="shrink-0"
+					class="header-control-btn shrink-0"
 					onpointerenter={(e) => showHeaderHoverTip('Theme', e)}
 					onpointerleave={hideHeaderHoverTip}
 					onclick={handleToggleTheme}
@@ -831,13 +831,23 @@
 				{/if}
 			</div>
 			{#if authState === 'signed_in'}
-				<div class="absolute inset-y-0 flex items-center" style:left="{headerLeftInset + 8}px" style:right="{headerRightInset + 8}px">
-					<div class="mx-auto flex min-w-0 w-fit max-w-full flex-col items-center justify-center gap-1 px-2 text-center">
+				<div
+					class="absolute inset-y-0 flex items-center"
+					style:left="{headerLeftInset + 8}px"
+					style:right="{headerRightInset + 8}px"
+				>
+					<div
+						class="mx-auto flex w-fit max-w-full min-w-0 flex-col items-center justify-center gap-1 px-2 text-center"
+					>
 						<Button
 							type="button"
 							size="sm"
-							variant={selectedHeaderIdentity === 'user' ? 'secondary' : 'outline'}
-							class="h-7 max-w-full truncate px-2 text-base leading-snug font-medium"
+							variant="outline"
+							class="header-identity-button h-7 max-w-full truncate px-2 text-base leading-snug font-medium transition-colors {selectedHeaderIdentity ===
+							'user'
+								? ''
+								: 'text-muted-foreground'}"
+							data-selected={selectedHeaderIdentity === 'user'}
 							aria-pressed={selectedHeaderIdentity === 'user'}
 							onclick={() => {
 								selectedHeaderIdentity = 'user';
@@ -848,8 +858,12 @@
 						<Button
 							type="button"
 							size="sm"
-							variant={selectedHeaderIdentity === 'role' ? 'secondary' : 'outline'}
-							class="h-7 max-w-full truncate px-2 text-base leading-snug font-medium"
+							variant="outline"
+							class="header-identity-button h-7 max-w-full truncate px-2 text-base leading-snug font-medium transition-colors {selectedHeaderIdentity ===
+							'role'
+								? ''
+								: 'text-muted-foreground'}"
+							data-selected={selectedHeaderIdentity === 'role'}
 							aria-pressed={selectedHeaderIdentity === 'role'}
 							onclick={() => {
 								selectedHeaderIdentity = 'role';
@@ -1264,10 +1278,20 @@
 </main>
 
 <style>
-	.chat-subtitle-clamp {
+	:global(.chat-subtitle-clamp) {
 		display: -webkit-box;
 		-webkit-box-orient: vertical;
 		-webkit-line-clamp: 2;
 		overflow: hidden;
+	}
+
+	:global(html:not(.dark) .header-control-btn:hover) {
+		background-color: color-mix(in oklch, var(--primary) 28%, var(--background));
+		border-color: color-mix(in oklch, var(--primary) 62%, var(--border));
+		color: color-mix(in oklch, var(--foreground) 78%, var(--primary));
+		box-shadow:
+			0 0 0 1px color-mix(in oklch, var(--primary) 34%, transparent),
+			0 6px 14px -8px color-mix(in oklch, var(--primary) 38%, transparent);
+		transform: translateY(-1px);
 	}
 </style>
