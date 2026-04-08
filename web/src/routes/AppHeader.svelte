@@ -3,7 +3,6 @@
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
 	import { CardDescription, CardHeader, CardTitle } from '$lib/components/ui/card';
-	import Drama from '@lucide/svelte/icons/drama';
 	import GalleryVerticalEnd from '@lucide/svelte/icons/gallery-vertical-end';
 	import MessagesSquare from '@lucide/svelte/icons/messages-square';
 	import Plus from '@lucide/svelte/icons/plus';
@@ -17,17 +16,15 @@
 		onNewChat,
 		onChatGallery,
 		onCurrentChat,
-		onRoles,
 		onToggleTheme,
 		onSignOut
 	}: {
 		authState: 'loading' | 'signed_out' | 'signed_in';
-		signedInMain: 'chat' | 'chats' | 'idle' | 'roles';
+		signedInMain: 'chat' | 'chats';
 		sessionSubtitle: string;
 		onNewChat: () => void;
 		onChatGallery: () => void;
 		onCurrentChat: () => void;
-		onRoles: () => void;
 		onToggleTheme: () => void;
 		onSignOut: () => void;
 	} = $props();
@@ -51,11 +48,7 @@
 		<div class="w-fit max-w-[20rem] min-w-0 shrink space-y-1">
 			<CardTitle class="text-2xl text-primary">Token Soup</CardTitle>
 			<CardDescription class="chat-subtitle-clamp text-base break-words"
-				>{signedInMain === 'roles'
-					? 'Roles'
-					: signedInMain === 'chats'
-						? 'Chats'
-						: sessionSubtitle}</CardDescription
+				>{signedInMain === 'chats' ? 'Chats' : sessionSubtitle}</CardDescription
 			>
 		</div>
 		<div class="min-w-0 flex-1" aria-hidden="true"></div>
@@ -97,19 +90,6 @@
 				aria-pressed={signedInMain === 'chat'}
 			>
 				<MessagesSquare class="size-4" />
-			</Button>
-			<Button
-				type="button"
-				variant={signedInMain === 'roles' ? 'secondary' : 'outline'}
-				size="icon-sm"
-				class="header-control-btn shrink-0"
-				onpointerenter={(e) => showHeaderHoverTip('Roles', e)}
-				onpointerleave={hideHeaderHoverTip}
-				onclick={onRoles}
-				aria-label="Roles"
-				aria-pressed={signedInMain === 'roles'}
-			>
-				<Drama class="size-4" />
 			</Button>
 			<Button
 				type="button"
