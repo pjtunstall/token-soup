@@ -274,9 +274,9 @@ func ChatHandler(store *HistoryStore, persist *Persist, cache *jwk.Cache, jwksUR
 		// If history already ends on user, keep it as-is.
 		// If history exists but ends on assistant, synthesize a user turn from the previous
 		// message content instead of a punctuation placeholder to avoid "responding to '.'".
-		// If there is no history at all (AI-first), fall back to a minimal placeholder for now.
+		// If there is no history at all (AI-first), seed with an explicit intro request.
 		if body.Completion && (len(turns) == 0 || !turns[len(turns)-1].User) {
-			synth := "."
+			synth := fmt.Sprintf("Please introduce yourself as %s.", assistantRoleName)
 			if len(turns) > 0 {
 				prev := strings.TrimSpace(turns[len(turns)-1].Content)
 				if prev != "" {
