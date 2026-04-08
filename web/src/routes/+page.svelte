@@ -826,8 +826,7 @@
 						variant="outline"
 						size="sm"
 						class="header-control-btn"
-						onclick={() => void signOut()}
-						>Sign out</Button
+						onclick={() => void signOut()}>Sign out</Button
 					>
 				{:else if authState === 'signed_out'}
 					<Badge variant="secondary">signed out</Badge>
@@ -973,7 +972,7 @@
 							<li>
 								<button
 									type="button"
-									class="w-full rounded-md border border-border bg-background/80 px-3 py-2.5 text-left text-sm font-medium text-foreground transition-colors hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline"
+									class="menu-action-btn w-full rounded-md border border-border bg-background/80 px-3 py-2.5 text-left text-sm font-medium text-foreground transition-colors hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline"
 									onclick={handleNewChat}
 								>
 									New chat
@@ -984,7 +983,7 @@
 								<li>
 									<button
 										type="button"
-										class="w-full rounded-md border px-3 py-2.5 text-left text-sm transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline {chatId ===
+										class="menu-action-btn w-full rounded-md border px-3 py-2.5 text-left text-sm transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline {chatId ===
 										c.id
 											? 'border-primary/50 bg-muted/40'
 											: 'border-border bg-background/40 hover:bg-muted/50'}"
@@ -1017,7 +1016,7 @@
 								<li>
 									<button
 										type="button"
-										class="w-full rounded-md border border-border bg-background/80 px-3 py-2.5 text-left text-sm font-medium text-foreground transition-colors hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline"
+										class="menu-action-btn w-full rounded-md border border-border bg-background/80 px-3 py-2.5 text-left text-sm font-medium text-foreground transition-colors hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline"
 										onclick={openNewRoleEditor}
 									>
 										New role
@@ -1027,7 +1026,7 @@
 									<li class="flex items-center gap-1.5">
 										<button
 											type="button"
-											class="min-w-0 flex-1 rounded-md border px-3 py-2.5 text-left text-sm text-foreground transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline {selectedRoleId ===
+											class="menu-action-btn min-w-0 flex-1 rounded-md border px-3 py-2.5 text-left text-sm text-foreground transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline {selectedRoleId ===
 											r.id
 												? 'border-primary/50 bg-muted/40'
 												: 'border-border bg-background/40 hover:bg-muted/50'}"
@@ -1041,7 +1040,7 @@
 											type="button"
 											variant="outline"
 											size="icon-sm"
-											class="shrink-0"
+											class="menu-action-btn shrink-0"
 											onclick={() => openExistingRoleEditor(r)}
 											aria-label={`Edit role ${r.name}`}
 										>
@@ -1051,7 +1050,7 @@
 											type="button"
 											variant="outline"
 											size="icon-sm"
-											class="shrink-0"
+											class="menu-action-btn shrink-0"
 											disabled={deletingRoleId === r.id}
 											onclick={(e: MouseEvent) => deleteRoleRow(r, e)}
 											aria-label={`Delete role ${r.name}`}
@@ -1067,7 +1066,7 @@
 									type="button"
 									variant="ghost"
 									size="sm"
-									class="w-fit gap-1.5 px-2"
+									class="menu-action-btn w-fit gap-1.5 px-2"
 									onclick={openRoleList}
 								>
 									<ArrowLeft class="size-4" aria-hidden="true" />
@@ -1294,9 +1293,11 @@
 		background-color: color-mix(in oklch, var(--primary) 28%, var(--background));
 		border-color: color-mix(in oklch, var(--primary) 62%, var(--border));
 		color: color-mix(in oklch, var(--foreground) 78%, var(--primary));
-		box-shadow:
-			0 0 0 1px color-mix(in oklch, var(--primary) 34%, transparent),
-			0 6px 14px -8px color-mix(in oklch, var(--primary) 38%, transparent);
-		transform: translateY(-1px);
+	}
+
+	:global(html:not(.dark) .menu-action-btn:hover) {
+		background-color: color-mix(in oklch, var(--primary) 22%, var(--background)) !important;
+		border-color: color-mix(in oklch, var(--primary) 56%, var(--border)) !important;
+		color: color-mix(in oklch, var(--foreground) 82%, var(--primary));
 	}
 </style>
