@@ -12,6 +12,7 @@
 	import { getSupabase } from '$lib/supabase';
 	import type { Session } from '@supabase/supabase-js';
 	import { Card, CardContent } from '$lib/components/ui/card';
+	import { Button } from '$lib/components/ui/button';
 	import { toggleTheme as applyToggleTheme } from '$lib/theme';
 	import AuthForm from './AuthForm.svelte';
 	import ChatsGallery from './ChatsGallery.svelte';
@@ -521,18 +522,12 @@
 			{authState}
 			{signedInMain}
 			{sessionSubtitle}
-			displayName={getDisplayName(session)}
-			assistantName={activeAssistantName()}
-			{selectedHeaderIdentity}
 			onNewChat={handleNewChat}
 			onChatGallery={handleChatGallery}
 			onCurrentChat={handleSpeechBubble}
 			onRoles={handleNewCharacter}
 			onToggleTheme={handleToggleTheme}
 			onSignOut={() => void signOut()}
-			onSelectIdentity={(id) => {
-				selectedHeaderIdentity = id;
-			}}
 		/>
 		<CardContent class="flex min-h-0 flex-1 flex-col gap-3">
 			{#if persistWarning}
@@ -543,47 +538,98 @@
 					{persistWarning}
 				</div>
 			{/if}
-		{#if authState === 'loading'}
-			<p class="text-sm text-muted-foreground">Loading…</p>
-		{:else if authState === 'signed_out'}
-			<AuthForm {supabase} />
-		{:else if signedInMain === 'idle'}
-			<div class="min-h-0 flex-1 shrink" aria-hidden="true"></div>
-		{:else if signedInMain === 'chats'}
-			<ChatsGallery
-				{chatRows}
-				{chatsLoading}
-				{chatsLoadError}
-				activeChatId={chatId}
-				onNewChat={handleNewChat}
-				onOpenChat={(c) => void openChatFromList(c)}
-			/>
-		{:else if signedInMain === 'roles'}
-			<RolesPanel
-				bind:this={rolesPanelRef}
-				{roleRows}
-				{rolesLoading}
-				{rolesLoadError}
-				{selectedRoleId}
-				{deletingRoleId}
-				accessToken={session?.access_token ?? ''}
-				onSelectRole={selectRoleAsCurrent}
-				onRolesChanged={() => void loadRoleRows()}
-				onDeleteRole={deleteRoleRow}
-			/>
-		{:else}
-			<ChatPanel
-				{messages}
-				{awaitingAi}
-				bind:messageInput
-				bind:logContainer
-				activeStreamingIndex={activeAiJobId !== '' ? aiBubbleIndexByJobId[activeAiJobId] : undefined}
-				{reasoningExpandedByIndex}
-				onToggleReasoning={toggleReasoningExpanded}
-				onSend={sendMessage}
-				onStop={stopMessage}
-			/>
-		{/if}
+			{#if authState === 'loading'}
+				<p class="text-sm text-muted-foreground">Loading…</p>
+			{:else if authState === 'signed_out'}
+				<AuthForm {supabase} />
+			{:else if signedInMain === 'idle'}
+				<div class="min-h-0 flex-1 shrink" aria-hidden="true"></div>
+			{:else}
+				<div class="flex min-h-0 flex-1 gap-3">
+					<div class="flex min-h-0 min-w-0 flex-1 flex-col">
+						{#if signedInMain === 'chats'}
+							<div class="flex min-h-0 flex-1 flex-col">
+								<ChatsGallery
+									{chatRows}
+									{chatsLoading}
+									{chatsLoadError}
+									activeChatId={chatId}
+									onNewChat={handleNewChat}
+									onOpenChat={(c) => void openChatFromList(c)}
+								/>
+							</div>
+						{:else if signedInMain === 'roles'}
+							<div class="flex min-h-0 flex-1 flex-col">
+								<RolesPanel
+									bind:this={rolesPanelRef}
+									{roleRows}
+									{rolesLoading}
+									{rolesLoadError}
+									{selectedRoleId}
+									{deletingRoleId}
+									accessToken={session?.access_token ?? ''}
+									onSelectRole={selectRoleAsCurrent}
+									onRolesChanged={() => void loadRoleRows()}
+									onDeleteRole={deleteRoleRow}
+								/>
+							</div>
+						{:else}
+							<div class="flex min-h-0 flex-1 flex-col">
+								<ChatPanel
+									{messages}
+									{awaitingAi}
+									bind:messageInput
+									bind:logContainer
+									activeStreamingIndex={activeAiJobId !== ''
+										? aiBubbleIndexByJobId[activeAiJobId]
+										: undefined}
+									{reasoningExpandedByIndex}
+									onToggleReasoning={toggleReasoningExpanded}
+									onSend={sendMessage}
+									onStop={stopMessage}
+								/>
+							</div>
+						{/if}
+					</div>
+					<aside
+						class="flex w-44 shrink-0 flex-col gap-2 rounded-md border border-border/70 bg-field/45 p-2"
+						aria-label="Identity panel"
+					>
+						<Button
+							type="button"
+							size="sm"
+							variant="outline"
+							class="header-control-btn header-identity-button h-8 w-full justify-start truncate px-2 text-base leading-snug font-medium transition-colors {selectedHeaderIdentity ===
+							'user'
+								? ''
+								: 'text-muted-foreground'}"
+							data-selected={selectedHeaderIdentity === 'user'}
+							aria-pressed={selectedHeaderIdentity === 'user'}
+							onclick={() => {
+								selectedHeaderIdentity = 'user';
+							}}
+						>
+							{getDisplayName(session)}
+						</Button>
+						<Button
+							type="button"
+							size="sm"
+							variant="outline"
+							class="header-control-btn header-identity-button h-8 w-full justify-start truncate px-2 text-base leading-snug font-medium transition-colors {selectedHeaderIdentity ===
+							'role'
+								? ''
+								: 'text-muted-foreground'}"
+							data-selected={selectedHeaderIdentity === 'role'}
+							aria-pressed={selectedHeaderIdentity === 'role'}
+							onclick={() => {
+								selectedHeaderIdentity = 'role';
+							}}
+						>
+							{activeAssistantName()}
+						</Button>
+					</aside>
+				</div>
+			{/if}
 		</CardContent>
 	</Card>
 
