@@ -91,6 +91,8 @@
 	let deletingRoleId = $state<number | null>(null);
 	/** Persisted AI persona (`public.roles`); drives system prompt and assistant label. */
 	let selectedRoleId = $state<number | null>(null);
+	/** Header identity chip selection (mutually exclusive). */
+	let selectedHeaderIdentity = $state<'user' | 'role'>('role');
 
 	let chatRows = $state<ChatSummaryRow[]>([]);
 	let chatsLoadError = $state('');
@@ -829,18 +831,32 @@
 				{/if}
 			</div>
 			{#if authState === 'signed_in'}
-				<div
-					class="pointer-events-none absolute inset-y-0 flex items-center"
-					style:left="{headerLeftInset + 8}px"
-					style:right="{headerRightInset + 8}px"
-				>
-					<div class="mx-auto flex min-w-0 w-fit max-w-full flex-col items-center justify-center px-2 text-center">
-						<p class="truncate text-base leading-snug font-medium text-muted-foreground">
+				<div class="absolute inset-y-0 flex items-center" style:left="{headerLeftInset + 8}px" style:right="{headerRightInset + 8}px">
+					<div class="mx-auto flex min-w-0 w-fit max-w-full flex-col items-center justify-center gap-1 px-2 text-center">
+						<Button
+							type="button"
+							size="sm"
+							variant={selectedHeaderIdentity === 'user' ? 'secondary' : 'outline'}
+							class="h-7 max-w-full truncate px-2 text-base leading-snug font-medium"
+							aria-pressed={selectedHeaderIdentity === 'user'}
+							onclick={() => {
+								selectedHeaderIdentity = 'user';
+							}}
+						>
 							{getDisplayName(session)}
-						</p>
-						<p class="truncate text-base leading-snug font-medium text-foreground">
+						</Button>
+						<Button
+							type="button"
+							size="sm"
+							variant={selectedHeaderIdentity === 'role' ? 'secondary' : 'outline'}
+							class="h-7 max-w-full truncate px-2 text-base leading-snug font-medium"
+							aria-pressed={selectedHeaderIdentity === 'role'}
+							onclick={() => {
+								selectedHeaderIdentity = 'role';
+							}}
+						>
 							{activeAssistantName()}
-						</p>
+						</Button>
 					</div>
 				</div>
 			{/if}
