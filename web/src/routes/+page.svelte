@@ -719,13 +719,13 @@
 </script>
 
 <main class="mx-auto flex min-h-screen w-full max-w-3xl items-center p-4">
-	<Card class="flex h-[80vh] w-full min-h-0 flex-col">
+	<Card class="flex h-[80vh] min-h-0 w-full flex-col">
 		<CardHeader class="flex shrink-0 flex-row items-center gap-2 space-y-0">
 			<div class="min-w-0 shrink space-y-1">
 				<CardTitle class="text-primary">Token Soup</CardTitle>
 				<CardDescription
 					>{signedInMain === 'roles'
-						? 'Edit roles'
+						? 'Roles'
 						: signedInMain === 'chats'
 							? 'Chats'
 							: sessionSubtitle}</CardDescription
@@ -735,10 +735,12 @@
 				<div
 					class="flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 px-2 text-center"
 				>
-					<p class="truncate text-base font-medium leading-snug text-muted-foreground">
+					<p class="truncate text-base leading-snug font-medium text-muted-foreground">
 						{getDisplayName(session)}
 					</p>
-					<p class="truncate text-base font-medium leading-snug text-foreground">{activeAssistantName()}</p>
+					<p class="truncate text-base leading-snug font-medium text-foreground">
+						{activeAssistantName()}
+					</p>
 				</div>
 			{:else}
 				<div class="min-w-0 flex-1" aria-hidden="true"></div>
@@ -923,7 +925,8 @@
 								<li>
 									<button
 										type="button"
-										class="w-full rounded-md border px-3 py-2.5 text-left text-sm transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline {chatId === c.id
+										class="w-full rounded-md border px-3 py-2.5 text-left text-sm transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline {chatId ===
+										c.id
 											? 'border-primary/50 bg-muted/40'
 											: 'border-border bg-background/40 hover:bg-muted/50'}"
 										onclick={() => void openChatFromList(c)}
@@ -965,7 +968,8 @@
 									<li class="flex items-center gap-1.5">
 										<button
 											type="button"
-											class="min-w-0 flex-1 rounded-md border px-3 py-2.5 text-left text-sm text-foreground transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline {selectedRoleId === r.id
+											class="min-w-0 flex-1 rounded-md border px-3 py-2.5 text-left text-sm text-foreground transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline {selectedRoleId ===
+											r.id
 												? 'border-primary/50 bg-muted/40'
 												: 'border-border bg-background/40 hover:bg-muted/50'}"
 											onclick={() => selectRoleAsCurrent(r)}

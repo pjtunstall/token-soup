@@ -34,7 +34,7 @@ export type AIStreamEvent = {
 };
 
 /** Matches backend chat.maxTitleRunes (strict display width). */
-export const MAX_TITLE_RUNES = 72;
+export const MAX_TITLE_RUNES = 48;
 
 function isApostrophe(rs: string[], i: number): boolean {
 	if (i <= 0 || i >= rs.length - 1 || rs[i] !== "'") return false;

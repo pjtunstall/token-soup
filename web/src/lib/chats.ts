@@ -1,5 +1,5 @@
 import { PUBLIC_API_URL } from '$env/static/public';
-import type { ChatMessage } from '$lib/chat';
+import { MAX_TITLE_RUNES, truncateWithEllipsis, type ChatMessage } from '$lib/chat';
 
 export type ChatSummaryRow = { id: number; title: string; lastUpdated: string };
 
@@ -64,7 +64,11 @@ export async function fetchChats(accessToken: string): Promise<ChatSummaryRow[]>
 		const text = await res.text().catch(() => '');
 		throw new Error(text || `could not load chats (${res.status})`);
 	}
-	return (await res.json()) as ChatSummaryRow[];
+	const rows = (await res.json()) as ChatSummaryRow[];
+	return rows.map((row) => ({
+		...row,
+		title: truncateWithEllipsis(row.title ?? '', MAX_TITLE_RUNES)
+	}));
 }
 
 /** GET /api/chats/:id */
@@ -90,7 +94,7 @@ export async function fetchChat(
 	const raw = (await res.json()) as ChatDetailResponse;
 	return {
 		id: raw.id,
-		title: raw.title,
+		title: truncateWithEllipsis(raw.title ?? '', MAX_TITLE_RUNES),
 		messages: raw.messages.map(apiMessageToChatMessage)
 	};
 }
