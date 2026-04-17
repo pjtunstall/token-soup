@@ -70,6 +70,28 @@ func chatsRequire(persist *Persist, cache *jwk.Cache, jwksURL string, w http.Res
 	return uid, true
 }
 
+func parseListPageParams(r *http.Request) (limit int, offset int, ok bool) {
+	limit = 10
+	offset = 0
+	limitRaw := r.URL.Query().Get("limit")
+	if limitRaw != "" {
+		v, err := strconv.Atoi(limitRaw)
+		if err != nil || v < 1 || v > 100 {
+			return 0, 0, false
+		}
+		limit = v
+	}
+	offsetRaw := r.URL.Query().Get("offset")
+	if offsetRaw != "" {
+		v, err := strconv.Atoi(offsetRaw)
+		if err != nil || v < 0 {
+			return 0, 0, false
+		}
+		offset = v
+	}
+	return limit, offset, true
+}
+
 // ChatsCollectionHandler: GET /api/chats (list)
 func ChatsCollectionHandler(persist *Persist, cache *jwk.Cache, jwksURL string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -81,7 +103,12 @@ func ChatsCollectionHandler(persist *Persist, cache *jwk.Cache, jwksURL string) 
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		chats, err := persist.ListChats(r.Context(), userID)
+		limit, offset, ok := parseListPageParams(r)
+		if !ok {
+			http.Error(w, "invalid pagination params", http.StatusBadRequest)
+			return
+		}
+		chats, err := persist.ListChats(r.Context(), userID, limit, offset)
 		if err != nil {
 			chatsDBError(w, err, "list", "could not list chats")
 			return

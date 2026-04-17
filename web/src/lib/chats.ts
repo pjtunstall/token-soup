@@ -2,6 +2,7 @@ import { PUBLIC_API_URL } from '$env/static/public';
 import { MAX_TITLE_RUNES, truncateWithEllipsis, type ChatMessage } from '$lib/chat';
 
 export type ChatSummaryRow = { id: number; title: string; lastUpdated: string };
+export type ListPageParams = { limit?: number; offset?: number };
 
 type ApiMessage = {
 	sender_type: string;
@@ -51,9 +52,16 @@ function apiMessageToChatMessage(m: ApiMessage): ChatMessage {
 }
 
 /** GET /api/chats */
-export async function fetchChats(accessToken: string): Promise<ChatSummaryRow[]> {
+export async function fetchChats(
+	accessToken: string,
+	{ limit = 10, offset = 0 }: ListPageParams = {}
+): Promise<ChatSummaryRow[]> {
 	const base = apiBase();
-	const res = await fetch(`${base}/api/chats`, {
+	const query = new URLSearchParams({
+		limit: String(limit),
+		offset: String(offset)
+	});
+	const res = await fetch(`${base}/api/chats?${query.toString()}`, {
 		method: 'GET',
 		headers: authHeaders(accessToken)
 	});

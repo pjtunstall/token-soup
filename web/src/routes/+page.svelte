@@ -3,7 +3,6 @@
 	import {
 		postChat,
 		normalizeChatTitle,
-		fallbackTitleFromUserMessage,
 		type AIStreamEvent,
 		type ChatMessage
 	} from '$lib/chat';
@@ -13,6 +12,21 @@
 		type RoleRow
 	} from '$lib/roles';
 	import { fetchChats, fetchChat, type ChatSummaryRow } from '$lib/chats';
+	import {
+		appendAssistantMessage,
+		appendUserMessage,
+		applyAnswerDelta,
+		applyReasoningDelta,
+		applyReplacement
+	} from '$lib/chat-message-state';
+	import {
+		activeAssistantName,
+		chooseSelectedRoleId,
+		getStoredSelectedRoleId,
+		persistSelectedRoleId
+	} from '$lib/role-selection';
+	import { loadFirstPage, loadNextPage } from '$lib/pagination';
+	import { getDisplayName } from '$lib/session';
 	import { getSupabase } from '$lib/supabase';
 	import type { Session } from '@supabase/supabase-js';
 	import { Card, CardContent } from '$lib/components/ui/card';
@@ -60,6 +74,10 @@
 	let chatRows = $state<ChatSummaryRow[]>([]);
 	let chatsLoadError = $state('');
 	let chatsLoading = $state(false);
+	let chatsLoadingMore = $state(false);
+	let chatsHasMore = $state(true);
+
+	const LIST_BATCH_SIZE = 10;
 
 	const supabase = getSupabase();
 
@@ -68,52 +86,18 @@
 		reasoningExpandedByIndex = { ...reasoningExpandedByIndex, [i]: next };
 	}
 
-	function getDisplayName(s: Session | null): string {
-		if (!s?.user) return 'You';
-		const meta = s.user.user_metadata as { display_name?: string } | undefined;
-		const d = meta?.display_name?.trim();
-		if (d) return d;
-		const email = s.user.email?.split('@')[0];
-		return email ?? 'You';
-	}
-
-	function selectedRoleStorageKey(uid: string): string {
-		return `token-soup:selectedRoleId:${uid}`;
-	}
-
-	function activeAssistantName(): string {
-		if (selectedRoleId != null) {
-			const row = roleRows.find((r) => r.id === selectedRoleId);
-			if (row) return row.name;
-		}
-		return 'Guru';
+	function currentAssistantName(): string {
+		return activeAssistantName(roleRows, selectedRoleId);
 	}
 
 	function syncSelectedRoleAfterLoad() {
 		const u = session?.user;
 		if (!u?.id) return;
-		let picked: number | null = null;
-		try {
-			const raw = localStorage.getItem(selectedRoleStorageKey(u.id));
-			if (raw) {
-				const id = Number(raw);
-				if (Number.isFinite(id) && roleRows.some((r) => r.id === id)) picked = id;
-			}
-		} catch {
-			/* ignore */
-		}
-		if (picked == null) {
-			const guru = roleRows.find((r) => r.name.toLowerCase() === 'guru');
-			if (guru) picked = guru.id;
-			else if (roleRows.length > 0) picked = roleRows[0]!.id;
-		}
+		const rawStoredId = getStoredSelectedRoleId(localStorage, u.id);
+		const picked = chooseSelectedRoleId(roleRows, rawStoredId);
 		selectedRoleId = picked;
 		if (picked != null) {
-			try {
-				localStorage.setItem(selectedRoleStorageKey(u.id), String(picked));
-			} catch {
-				/* ignore */
-			}
+			persistSelectedRoleId(localStorage, u.id, picked);
 		}
 	}
 
@@ -122,11 +106,7 @@
 		userTurn = false;
 		const uid = session?.user?.id;
 		if (uid) {
-			try {
-				localStorage.setItem(selectedRoleStorageKey(uid), String(r.id));
-			} catch {
-				/* ignore */
-			}
+			persistSelectedRoleId(localStorage, uid, r.id);
 		}
 	}
 
@@ -206,26 +186,17 @@
 	}
 
 	function pushAssistantBubble(text: string, senderModel?: string) {
-		const idx = messages.length;
-		const model = senderModel?.trim() || 'assistant';
-		messages = [
-			...messages,
-			{
-				sender_type: 'bot',
-				sender_name: activeAssistantName(),
-				sender_model: model,
-				content: text
-			}
-		];
+		const next = appendAssistantMessage(messages, currentAssistantName(), text, senderModel);
+		messages = next.messages;
 		scheduleScroll();
-		return idx;
+		return next.index;
 	}
 
 	function pushUserBubble(senderName: string, text: string) {
-		const idx = messages.length;
-		messages = [...messages, { sender_type: 'user', sender_name: senderName, content: text }];
+		const next = appendUserMessage(messages, senderName, text);
+		messages = next.messages;
 		scheduleScroll();
-		return idx;
+		return next.index;
 	}
 
 	async function scrollToBottom() {
@@ -255,21 +226,13 @@
 					awaitingAi = true;
 					activeAiJobId = jobId;
 				}
-				const current = messages[idx];
-				if (!current || current.sender_type !== 'bot') return;
-				const nm = current.sender_model ?? parsed.name;
-				const prevReasoning = current.reasoning ?? '';
-				messages = [
-					...messages.slice(0, idx),
-					{
-						sender_type: 'bot',
-						sender_name: activeAssistantName(),
-						sender_model: nm ?? 'assistant',
-						content: current.content,
-						reasoning: prevReasoning + deltaText
-					},
-					...messages.slice(idx + 1)
-				];
+				messages = applyReasoningDelta(
+					messages,
+					idx,
+					currentAssistantName(),
+					deltaText,
+					parsed.name
+				);
 				scheduleScroll();
 				return;
 			}
@@ -285,24 +248,11 @@
 					aiBubbleIndexByJobId[jobId] = newIdx;
 					return;
 				}
-				const current = messages[idx];
-				if (!current || current.sender_type !== 'bot') return;
-				const nm = current.sender_model ?? parsed.name;
 				const answerStarted = deltaText.trim() !== '';
 				if (answerStarted) {
 					reasoningExpandedByIndex = { ...reasoningExpandedByIndex, [idx]: false };
 				}
-				messages = [
-					...messages.slice(0, idx),
-					{
-						sender_type: 'bot',
-						sender_name: activeAssistantName(),
-						sender_model: nm ?? 'assistant',
-						content: current.content + deltaText,
-						reasoning: current.reasoning
-					},
-					...messages.slice(idx + 1)
-				];
+				messages = applyAnswerDelta(messages, idx, currentAssistantName(), deltaText, parsed.name);
 				scheduleScroll();
 				return;
 			}
@@ -318,20 +268,13 @@
 					aiBubbleIndexByJobId[jobId] = newIdx;
 					return;
 				}
-				const cur = messages[idx];
-				const nm = cur?.sender_type === 'bot' ? (cur.sender_model ?? parsed.name) : parsed.name;
-				const keepReasoning = cur?.sender_type === 'bot' ? cur.reasoning : undefined;
-				messages = [
-					...messages.slice(0, idx),
-					{
-						sender_type: 'bot',
-						sender_name: activeAssistantName(),
-						sender_model: nm ?? 'assistant',
-						content: replacement,
-						reasoning: keepReasoning
-					},
-					...messages.slice(idx + 1)
-				];
+				messages = applyReplacement(
+					messages,
+					idx,
+					currentAssistantName(),
+					replacement,
+					parsed.name
+				);
 				scheduleScroll();
 				return;
 			}
@@ -360,10 +303,14 @@
 		signedInMain = 'chat';
 		roleRows = [];
 		rolesLoadError = '';
+		rolesHasMore = true;
+		rolesLoadingMore = false;
 		selectedRoleId = null;
 		rolesPanelRef?.closeEditor();
 		chatRows = [];
 		chatsLoadError = '';
+		chatsHasMore = true;
+		chatsLoadingMore = false;
 	}
 
 	onMount(() => {
@@ -383,6 +330,8 @@
 			} else {
 				selectedRoleId = null;
 				roleRows = [];
+				rolesHasMore = true;
+				rolesLoadingMore = false;
 			}
 		});
 
@@ -462,16 +411,35 @@
 	}
 
 	async function loadChatRows() {
-		if (!session?.access_token) return;
+		const accessToken = session?.access_token;
+		if (!accessToken) return;
 		chatsLoading = true;
 		chatsLoadError = '';
 		try {
-			chatRows = await fetchChats(session.access_token);
+			const page = await loadFirstPage((params) => fetchChats(accessToken, params), LIST_BATCH_SIZE);
+			chatRows = page.rows;
+			chatsHasMore = page.hasMore;
 		} catch (e) {
 			chatRows = [];
+			chatsHasMore = true;
 			chatsLoadError = e instanceof Error ? e.message : String(e);
 		} finally {
 			chatsLoading = false;
+		}
+	}
+
+	async function loadMoreChats() {
+		const accessToken = session?.access_token;
+		if (!accessToken || chatsLoading || chatsLoadingMore || !chatsHasMore) return;
+		chatsLoadingMore = true;
+		try {
+			const page = await loadNextPage((params) => fetchChats(accessToken, params), LIST_BATCH_SIZE, chatRows);
+			chatRows = page.rows;
+			chatsHasMore = page.hasMore;
+		} catch (e) {
+			chatsLoadError = e instanceof Error ? e.message : String(e);
+		} finally {
+			chatsLoadingMore = false;
 		}
 	}
 
@@ -524,18 +492,40 @@
 	}
 
 	async function loadRoleRows() {
-		if (!session?.access_token) return;
+		const accessToken = session?.access_token;
+		if (!accessToken) return;
 		rolesLoading = true;
 		rolesLoadError = '';
 		try {
-			roleRows = await fetchRoles(session.access_token);
+			const page = await loadFirstPage((params) => fetchRoles(accessToken, params), LIST_BATCH_SIZE);
+			roleRows = page.rows;
+			rolesHasMore = page.hasMore;
 		} catch (e) {
 			roleRows = [];
+			rolesHasMore = true;
 			rolesLoadError = e instanceof Error ? e.message : String(e);
 		} finally {
 			rolesLoading = false;
 		}
 		syncSelectedRoleAfterLoad();
+	}
+
+	let rolesLoadingMore = $state(false);
+	let rolesHasMore = $state(true);
+
+	async function loadMoreRoles() {
+		const accessToken = session?.access_token;
+		if (!accessToken || rolesLoading || rolesLoadingMore || !rolesHasMore) return;
+		rolesLoadingMore = true;
+		try {
+			const page = await loadNextPage((params) => fetchRoles(accessToken, params), LIST_BATCH_SIZE, roleRows);
+			roleRows = page.rows;
+			rolesHasMore = page.hasMore;
+		} catch (e) {
+			rolesLoadError = e instanceof Error ? e.message : String(e);
+		} finally {
+			rolesLoadingMore = false;
+		}
 	}
 
 	async function deleteRoleRow(r: RoleRow, e: MouseEvent) {
@@ -592,10 +582,13 @@
 								<ChatsGallery
 									{chatRows}
 									{chatsLoading}
+									{chatsLoadingMore}
 									{chatsLoadError}
+									{chatsHasMore}
 									activeChatId={chatId}
 									onNewChat={handleNewChat}
 									onOpenChat={(c) => void openChatFromList(c)}
+									onLoadMore={() => void loadMoreChats()}
 								/>
 							</div>
 						{:else}
@@ -627,6 +620,8 @@
 							{roleRows}
 							{rolesLoading}
 							{rolesLoadError}
+							{rolesLoadingMore}
+							{rolesHasMore}
 							{selectedRoleId}
 							{deletingRoleId}
 							{userTurn}
@@ -637,6 +632,7 @@
 							onDoubleClickRole={handleDoubleClickRole}
 							onRolesChanged={loadRoleRows}
 							onDeleteRole={deleteRoleRow}
+							onLoadMore={() => void loadMoreRoles()}
 						/>
 					</aside>
 				</div>

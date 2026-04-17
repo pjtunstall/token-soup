@@ -5,27 +5,57 @@
 	let {
 		chatRows,
 		chatsLoading,
+		chatsLoadingMore,
 		chatsLoadError,
+		chatsHasMore,
 		activeChatId,
 		onNewChat,
-		onOpenChat
+		onOpenChat,
+		onLoadMore
 	}: {
 		chatRows: ChatSummaryRow[];
 		chatsLoading: boolean;
+		chatsLoadingMore: boolean;
 		chatsLoadError: string;
+		chatsHasMore: boolean;
 		activeChatId: number | null;
 		onNewChat: () => void;
 		onOpenChat: (c: ChatSummaryRow) => void;
+		onLoadMore: () => void;
 	} = $props();
+
+	let viewportRef = $state<HTMLElement | null>(null);
+	const LOAD_MORE_PX = 240;
 
 	function formatChatListDate(iso: string): string {
 		const d = new Date(iso);
 		if (Number.isNaN(d.getTime())) return '';
 		return d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 	}
+
+	function maybeLoadMore() {
+		if (!viewportRef || chatsLoading || chatsLoadingMore || !chatsHasMore) return;
+		const remaining = viewportRef.scrollHeight - viewportRef.scrollTop - viewportRef.clientHeight;
+		if (remaining <= LOAD_MORE_PX) onLoadMore();
+	}
+
+	$effect(() => {
+		if (!viewportRef) return;
+		const onScroll = () => maybeLoadMore();
+		viewportRef.addEventListener('scroll', onScroll, { passive: true });
+		return () => viewportRef?.removeEventListener('scroll', onScroll);
+	});
+
+	$effect(() => {
+		chatRows.length;
+		maybeLoadMore();
+	});
 </script>
 
-<ScrollArea class="min-h-0 flex-1 rounded-md border border-input bg-field">
+<ScrollArea
+	class="min-h-0 flex-1 rounded-md border border-input bg-field"
+	bind:viewportRef
+>
 	<div class="min-h-full space-y-2 p-3">
 		{#if chatsLoading}
 			<p class="text-sm text-muted-foreground">Loading chats…</p>
@@ -64,6 +94,9 @@
 		</ul>
 		{#if !chatsLoading && !chatsLoadError && chatRows.length === 0}
 			<p class="text-sm text-muted-foreground">No saved chats yet.</p>
+		{/if}
+		{#if chatsLoadingMore}
+			<p class="text-sm text-muted-foreground">Loading more chats…</p>
 		{/if}
 	</div>
 </ScrollArea>

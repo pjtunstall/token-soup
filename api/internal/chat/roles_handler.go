@@ -64,7 +64,12 @@ func RolesCollectionHandler(persist *Persist, cache *jwk.Cache, jwksURL string) 
 		}
 		switch r.Method {
 		case http.MethodGet:
-			roles, err := persist.ListRoles(r.Context(), userID)
+			limit, offset, ok := parseListPageParams(r)
+			if !ok {
+				http.Error(w, "invalid pagination params", http.StatusBadRequest)
+				return
+			}
+			roles, err := persist.ListRoles(r.Context(), userID, limit, offset)
 			if err != nil {
 				rolesDBError(w, err, "list", "could not list roles")
 				return

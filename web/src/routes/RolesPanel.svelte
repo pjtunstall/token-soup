@@ -9,7 +9,9 @@
 	let {
 		roleRows,
 		rolesLoading,
+		rolesLoadingMore,
 		rolesLoadError,
+		rolesHasMore,
 		selectedRoleId,
 		deletingRoleId,
 		displayName,
@@ -19,11 +21,14 @@
 		onSelectUser,
 		onDoubleClickRole,
 		onRolesChanged,
-		onDeleteRole
+		onDeleteRole,
+		onLoadMore
 	}: {
 		roleRows: RoleRow[];
 		rolesLoading: boolean;
+		rolesLoadingMore: boolean;
 		rolesLoadError: string;
+		rolesHasMore: boolean;
 		selectedRoleId: number | null;
 		deletingRoleId: number | null;
 		displayName: string;
@@ -34,6 +39,7 @@
 		onDoubleClickRole: (r: RoleRow) => void;
 		onRolesChanged: () => Promise<void>;
 		onDeleteRole: (r: RoleRow, e: MouseEvent) => void;
+		onLoadMore: () => void;
 	} = $props();
 
 	let editorOpen = $state(false);
@@ -43,6 +49,8 @@
 	let editorDescription = $state('');
 	let editorSaving = $state(false);
 	let editorError = $state('');
+	let viewportRef = $state<HTMLElement | null>(null);
+	const LOAD_MORE_PX = 240;
 
 	export function closeEditor() {
 		editorOpen = false;
@@ -113,6 +121,24 @@
 			editorSaving = false;
 		}
 	}
+
+	function maybeLoadMoreRoles() {
+		if (!viewportRef || rolesLoading || rolesLoadingMore || !rolesHasMore) return;
+		const remaining = viewportRef.scrollHeight - viewportRef.scrollTop - viewportRef.clientHeight;
+		if (remaining <= LOAD_MORE_PX) onLoadMore();
+	}
+
+	$effect(() => {
+		if (!viewportRef) return;
+		const onScroll = () => maybeLoadMoreRoles();
+		viewportRef.addEventListener('scroll', onScroll, { passive: true });
+		return () => viewportRef?.removeEventListener('scroll', onScroll);
+	});
+
+	$effect(() => {
+		roleRows.length;
+		maybeLoadMoreRoles();
+	});
 </script>
 
 <button
@@ -189,7 +215,10 @@
 			</div>
 		</div>
 	{:else}
-		<ScrollArea class="h-full min-h-0">
+		<ScrollArea
+			class="h-full min-h-0"
+			bind:viewportRef
+		>
 			<div class="space-y-2 pr-2">
 				{#if rolesLoading}
 					<p class="text-xs text-muted-foreground">Loading roles…</p>
@@ -250,6 +279,9 @@
 						</li>
 					{/each}
 				</ul>
+				{#if rolesLoadingMore}
+					<p class="text-xs text-muted-foreground">Loading more roles…</p>
+				{/if}
 			</div>
 		</ScrollArea>
 	{/if}

@@ -150,15 +150,16 @@ type ChatSummary struct {
 }
 
 // ListChats returns the user’s chats, most recently updated first.
-func (p *Persist) ListChats(ctx context.Context, userID string) ([]ChatSummary, error) {
+func (p *Persist) ListChats(ctx context.Context, userID string, limit, offset int) ([]ChatSummary, error) {
 	var out []ChatSummary
 	err := withPersistRetry(ctx, func() error {
 		rows, err := p.Pool.Query(ctx, `
 			SELECT id, title, last_updated
 			FROM public.chats
 			WHERE user_id = $1::uuid
-			ORDER BY last_updated DESC`,
-			userID,
+			ORDER BY last_updated DESC
+			LIMIT $2 OFFSET $3`,
+			userID, limit, offset,
 		)
 		if err != nil {
 			return err
@@ -280,8 +281,8 @@ type Role struct {
 	Description *string `json:"description"`
 }
 
-// ListRoles returns all roles for the user, ordered by name.
-func (p *Persist) ListRoles(ctx context.Context, userID string) ([]Role, error) {
+// ListRoles returns roles for the user, ordered by name.
+func (p *Persist) ListRoles(ctx context.Context, userID string, limit, offset int) ([]Role, error) {
 	if err := p.EnsureDefaultGuruRole(ctx, userID); err != nil {
 		return nil, err
 	}
@@ -291,8 +292,9 @@ func (p *Persist) ListRoles(ctx context.Context, userID string) ([]Role, error) 
 			SELECT id, name, description
 			FROM public.roles
 			WHERE user_id = $1::uuid
-			ORDER BY name ASC`,
-			userID,
+			ORDER BY name ASC
+			LIMIT $2 OFFSET $3`,
+			userID, limit, offset,
 		)
 		if err != nil {
 			return err

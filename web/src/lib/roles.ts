@@ -1,6 +1,7 @@
 import { PUBLIC_API_URL } from '$env/static/public';
 
 export type RoleRow = { id: number; name: string; description: string | null };
+type ListPageParams = { limit?: number; offset?: number };
 
 /** Empty string = same origin (dev: Vite proxies `/api` to the Go API). Matches `$lib/chat` apiBase. */
 function apiBase(): string {
@@ -17,9 +18,16 @@ function authHeaders(accessToken: string): HeadersInit {
 }
 
 /** GET /api/roles */
-export async function fetchRoles(accessToken: string): Promise<RoleRow[]> {
+export async function fetchRoles(
+	accessToken: string,
+	{ limit = 10, offset = 0 }: ListPageParams = {}
+): Promise<RoleRow[]> {
 	const base = apiBase();
-	const res = await fetch(`${base}/api/roles`, {
+	const query = new URLSearchParams({
+		limit: String(limit),
+		offset: String(offset)
+	});
+	const res = await fetch(`${base}/api/roles?${query.toString()}`, {
 		method: 'GET',
 		headers: authHeaders(accessToken)
 	});
@@ -62,8 +70,14 @@ export async function createRole(
 export async function roleNameExists(accessToken: string, name: string): Promise<boolean> {
 	const normalized = name.trim().toLowerCase();
 	if (!normalized) return false;
-	const roles = await fetchRoles(accessToken);
-	return roles.some((r) => r.name.trim().toLowerCase() === normalized);
+	const pageSize = 100;
+	let offset = 0;
+	while (true) {
+		const roles = await fetchRoles(accessToken, { limit: pageSize, offset });
+		if (roles.some((r) => r.name.trim().toLowerCase() === normalized)) return true;
+		if (roles.length < pageSize) return false;
+		offset += pageSize;
+	}
 }
 
 /** PATCH /api/roles/:id */
