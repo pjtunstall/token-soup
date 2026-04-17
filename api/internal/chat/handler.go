@@ -34,9 +34,14 @@ type chatPostBody struct {
 func turnsFromMessages(msgs []Message) []openrouter.HistoryTurn {
 	turns := make([]openrouter.HistoryTurn, len(msgs))
 	for i := range msgs {
+		content := msgs[i].Content
+		name := strings.TrimSpace(msgs[i].SenderName)
+		if name != "" {
+			content = fmt.Sprintf("[%s]: %s", name, content)
+		}
 		turns[i] = openrouter.HistoryTurn{
 			User:    msgs[i].SenderType == SenderUser,
-			Content: msgs[i].Content,
+			Content: content,
 		}
 	}
 	return turns
