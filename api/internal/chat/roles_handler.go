@@ -23,6 +23,21 @@ type rolePatchBody struct {
 	Description *string `json:"description"`
 }
 
+func normalizeRoleDescription(input *string) (string, bool) {
+	if input == nil {
+		return "", false
+	}
+	desc := strings.TrimSpace(*input)
+	if desc == "" {
+		return "", false
+	}
+	maxChars := roleDescriptionMaxChars()
+	if utf8.RuneCountInString(desc) > maxChars {
+		return "", false
+	}
+	return desc, true
+}
+
 // rolesDBError logs err and maps common Postgres codes to clear responses; otherwise writes fallback.
 func rolesDBError(w http.ResponseWriter, err error, operation, fallback string) {
 	log.Printf("roles %s: %v", operation, err)
@@ -82,6 +97,9 @@ func RolesCollectionHandler(persist *Persist, cache *jwk.Cache, jwksURL string) 
 			if roles == nil {
 				roles = []Role{}
 			}
+			for i := range roles {
+				roles[i] = clampRoleForDisplay(roles[i])
+			}
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(roles)
 
@@ -101,11 +119,21 @@ func RolesCollectionHandler(persist *Persist, cache *jwk.Cache, jwksURL string) 
 				http.Error(w, fmt.Sprintf("name too long (max %d characters)", maxChars), http.StatusBadRequest)
 				return
 			}
-			row, err := persist.InsertRole(r.Context(), userID, name, body.Description)
+			desc, ok := normalizeRoleDescription(body.Description)
+			if !ok {
+				http.Error(
+					w,
+					fmt.Sprintf("description is required and must be %d characters or fewer", roleDescriptionMaxChars()),
+					http.StatusBadRequest,
+				)
+				return
+			}
+			row, err := persist.InsertRole(r.Context(), userID, name, &desc)
 			if err != nil {
 				rolesDBError(w, err, "create", "could not create role")
 				return
 			}
+			row = clampRoleForDisplay(row)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusCreated)
 			_ = json.NewEncoder(w).Encode(row)
@@ -137,7 +165,16 @@ func RolesItemHandler(persist *Persist, cache *jwk.Cache, jwksURL string) http.H
 				http.Error(w, "invalid json", http.StatusBadRequest)
 				return
 			}
-			err = persist.UpdateRoleDescription(r.Context(), userID, roleID, body.Description)
+			desc, ok := normalizeRoleDescription(body.Description)
+			if !ok {
+				http.Error(
+					w,
+					fmt.Sprintf("description is required and must be %d characters or fewer", roleDescriptionMaxChars()),
+					http.StatusBadRequest,
+				)
+				return
+			}
+			err = persist.UpdateRoleDescription(r.Context(), userID, roleID, &desc)
 			if err != nil {
 				if strings.Contains(err.Error(), "not found") {
 					http.Error(w, "not found", http.StatusNotFound)

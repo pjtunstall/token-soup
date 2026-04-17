@@ -7,6 +7,7 @@ import (
 )
 
 const defaultRoleNameMaxChars = 64
+const defaultRoleDescriptionMaxChars = 2000
 const defaultUserMessageMaxChars = 12000
 
 func roleNameMaxChars() int {
@@ -17,6 +18,11 @@ func roleNameMaxChars() int {
 func userMessageMaxChars() int {
 	raw := strings.TrimSpace(os.Getenv("PUBLIC_USER_MESSAGE_MAX_CHARS"))
 	return envPositiveIntOrDefault(raw, defaultUserMessageMaxChars)
+}
+
+func roleDescriptionMaxChars() int {
+	raw := strings.TrimSpace(os.Getenv("PUBLIC_ROLE_DESCRIPTION_MAX_CHARS"))
+	return envPositiveIntOrDefault(raw, defaultRoleDescriptionMaxChars)
 }
 
 func envPositiveIntOrDefault(raw string, fallback int) int {

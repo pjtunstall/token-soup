@@ -27,6 +27,7 @@ type chatDetailJSON struct {
 }
 
 func messageToJSON(m Message) chatMessageJSON {
+	m = clampMessageForDisplay(m)
 	out := chatMessageJSON{
 		SenderType: string(m.SenderType),
 		SenderName: m.SenderName,
@@ -116,6 +117,9 @@ func ChatsCollectionHandler(persist *Persist, cache *jwk.Cache, jwksURL string) 
 		if chats == nil {
 			chats = []ChatSummary{}
 		}
+		for i := range chats {
+			chats[i] = clampChatSummaryForDisplay(chats[i])
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(chats)
 	}
@@ -154,7 +158,7 @@ func ChatsItemHandler(persist *Persist, cache *jwk.Cache, jwksURL string) http.H
 		}
 		out := chatDetailJSON{
 			ID:       chatID,
-			Title:    title,
+			Title:    truncateWithEllipsis(title, maxTitleRunes),
 			Messages: make([]chatMessageJSON, 0, len(msgs)),
 		}
 		for i := range msgs {

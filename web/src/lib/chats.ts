@@ -1,5 +1,6 @@
 import { PUBLIC_API_URL } from '$env/static/public';
 import { MAX_TITLE_RUNES, truncateWithEllipsis, type ChatMessage } from '$lib/chat';
+import { clampChatMessageForDisplay } from '$lib/display-clamp';
 
 export type ChatSummaryRow = { id: number; title: string; lastUpdated: string };
 export type ListPageParams = { limit?: number; offset?: number };
@@ -34,21 +35,21 @@ function authHeaders(accessToken: string): HeadersInit {
 
 function apiMessageToChatMessage(m: ApiMessage): ChatMessage {
 	if (m.sender_type === 'user') {
-		return {
+		return clampChatMessageForDisplay({
 			sender_type: 'user',
 			sender_name: m.sender_name,
 			content: m.content,
 			...(m.role_id != null ? { role_id: m.role_id } : {})
-		};
+		});
 	}
-	return {
+	return clampChatMessageForDisplay({
 		sender_type: 'bot',
 		sender_name: m.sender_name,
 		content: m.content,
 		sender_model: (m.sender_model ?? '').trim() || 'assistant',
 		reasoning: m.reasoning ?? null,
 		...(m.role_id != null ? { role_id: m.role_id } : {})
-	};
+	});
 }
 
 /** GET /api/chats */

@@ -2,7 +2,8 @@
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import { ScrollArea } from '$lib/components/ui/scroll-area';
-	import { ROLE_NAME_MAX_CHARS } from '$lib/limits';
+	import { clampRoleForDisplay } from '$lib/display-clamp';
+	import { ROLE_DESCRIPTION_MAX_CHARS, ROLE_NAME_MAX_CHARS } from '$lib/limits';
 	import { createRole, updateRoleDescription, roleNameExists, type RoleRow } from '$lib/roles';
 	import Feather from '@lucide/svelte/icons/feather';
 	import Trash2 from '@lucide/svelte/icons/trash-2';
@@ -87,6 +88,10 @@
 		const desc = editorDescription.trim();
 		if (!desc) {
 			editorError = 'Role description is required.';
+			return;
+		}
+		if ([...desc].length > ROLE_DESCRIPTION_MAX_CHARS) {
+			editorError = `Role description must be ${ROLE_DESCRIPTION_MAX_CHARS} characters or fewer.`;
 			return;
 		}
 		editorSaving = true;
@@ -191,11 +196,15 @@
 						? 'Describe how this character should behave...'
 						: 'Edit role description...'}
 					bind:value={editorDescription}
+					maxlength={ROLE_DESCRIPTION_MAX_CHARS}
 					oninput={() => {
 						editorError = '';
 					}}
 					disabled={editorSaving}
 				></textarea>
+				<p class="mt-1 text-[11px] text-muted-foreground">
+					{[...editorDescription.trim()].length}/{ROLE_DESCRIPTION_MAX_CHARS}
+				</p>
 				{#if editorError}
 					<p class="mt-2 text-xs text-destructive">{editorError}</p>
 				{/if}
@@ -262,7 +271,7 @@
 								aria-pressed={!userTurn && selectedRoleId === r.id}
 								data-selected={!userTurn && selectedRoleId === r.id ? 'true' : undefined}
 							>
-								{r.name}
+								{clampRoleForDisplay(r).name}
 							</button>
 							<Button
 								type="button"
@@ -270,7 +279,7 @@
 								size="icon-sm"
 								class="menu-action-btn shrink-0"
 								onclick={() => openExistingRoleEditor(r)}
-								aria-label={`Edit role ${r.name}`}
+								aria-label={`Edit role ${clampRoleForDisplay(r).name}`}
 							>
 								<Feather class="size-4" aria-hidden="true" />
 							</Button>
@@ -281,7 +290,7 @@
 								class="menu-action-btn shrink-0"
 								disabled={deletingRoleId === r.id}
 								onclick={(e: MouseEvent) => onDeleteRole(r, e)}
-								aria-label={`Delete role ${r.name}`}
+								aria-label={`Delete role ${clampRoleForDisplay(r).name}`}
 							>
 								<Trash2 class="size-4" aria-hidden="true" />
 							</Button>

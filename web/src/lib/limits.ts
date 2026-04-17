@@ -1,6 +1,7 @@
-import { PUBLIC_ROLE_NAME_MAX_CHARS, PUBLIC_USER_MESSAGE_MAX_CHARS } from '$env/static/public';
+import { env } from '$env/dynamic/public';
 
 const DEFAULT_ROLE_NAME_MAX_CHARS = 64;
+const DEFAULT_ROLE_DESCRIPTION_MAX_CHARS = 2000;
 const DEFAULT_USER_MESSAGE_MAX_CHARS = 12000;
 
 function parsePositiveInt(v: string | undefined, fallback: number): number {
@@ -11,10 +12,14 @@ function parsePositiveInt(v: string | undefined, fallback: number): number {
 }
 
 export const ROLE_NAME_MAX_CHARS = parsePositiveInt(
-	PUBLIC_ROLE_NAME_MAX_CHARS,
+	env.PUBLIC_ROLE_NAME_MAX_CHARS,
 	DEFAULT_ROLE_NAME_MAX_CHARS
 );
+export const ROLE_DESCRIPTION_MAX_CHARS = parsePositiveInt(
+	env.PUBLIC_ROLE_DESCRIPTION_MAX_CHARS,
+	DEFAULT_ROLE_DESCRIPTION_MAX_CHARS
+);
 export const USER_MESSAGE_MAX_CHARS = parsePositiveInt(
-	PUBLIC_USER_MESSAGE_MAX_CHARS,
+	env.PUBLIC_USER_MESSAGE_MAX_CHARS,
 	DEFAULT_USER_MESSAGE_MAX_CHARS
 );

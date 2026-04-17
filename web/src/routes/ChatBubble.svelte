@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { renderMarkdown, splitAssistantLabelPrefix } from '$lib/markdown';
 	import type { ChatMessage } from '$lib/chat';
+	import { clampChatMessageForDisplay } from '$lib/display-clamp';
 	import ChevronDown from '@lucide/svelte/icons/chevron-down';
 	import ChevronUp from '@lucide/svelte/icons/chevron-up';
 
@@ -15,40 +16,41 @@
 		reasoningExpanded: boolean;
 		onToggleReasoning: () => void;
 	} = $props();
+	const displayMsg = $derived(clampChatMessageForDisplay(msg));
 
 	const hasReasoning = $derived(
-		msg.sender_type === 'bot' && !!msg.reasoning?.trim()
+		displayMsg.sender_type === 'bot' && !!displayMsg.reasoning?.trim()
 	);
 	const showReasoning = $derived(streamingHere || hasReasoning);
 
 	const prefix = $derived(
-		msg.sender_type === 'bot'
-			? splitAssistantLabelPrefix(msg.content, msg.sender_model ?? 'assistant')
+		displayMsg.sender_type === 'bot'
+			? splitAssistantLabelPrefix(displayMsg.content, displayMsg.sender_model ?? 'assistant')
 			: null
 	);
 
 	function answerHasContent(): boolean {
-		if (msg.sender_type !== 'bot') return false;
-		if (!prefix) return msg.content.trim().length > 0;
+		if (displayMsg.sender_type !== 'bot') return false;
+		if (!prefix) return displayMsg.content.trim().length > 0;
 		return prefix.rest.trim() !== '';
 	}
 
 	const showThinking = $derived(
-		msg.sender_type === 'bot' && streamingHere && !answerHasContent()
+		displayMsg.sender_type === 'bot' && streamingHere && !answerHasContent()
 	);
 </script>
 
-{#if msg.sender_type === 'user'}
+{#if displayMsg.sender_type === 'user'}
 	<li
 		class="rounded-lg border-2 border-bubble-user-border bg-bubble-user px-3 py-2 text-sm text-foreground"
 	>
 		<div class="flex flex-col gap-1.5">
-			<div class="font-semibold text-foreground">{msg.sender_name}</div>
+			<div class="font-semibold text-foreground">{displayMsg.sender_name}</div>
 			<div
 				class="prose prose-sm max-w-none text-foreground dark:prose-invert prose-headings:mt-3 prose-headings:mb-2 prose-headings:first:mt-0 prose-p:my-2 first:prose-p:mt-0 last:prose-p:mb-0 prose-strong:font-semibold prose-strong:text-foreground prose-pre:my-2"
 			>
 				<!-- eslint-disable-next-line svelte/no-at-html-tags -- DOMPurify sanitizes -->
-				{@html renderMarkdown(msg.content)}
+				{@html renderMarkdown(displayMsg.content)}
 			</div>
 		</div>
 	</li>
@@ -104,7 +106,7 @@
 						<p
 							class="reasoning-scrollbar max-h-64 overflow-y-auto px-2 py-2 font-mono text-xs leading-relaxed break-words whitespace-pre-wrap text-muted-foreground"
 						>
-							{msg.reasoning?.trim() ? msg.reasoning : 'Waiting for reasoning…'}
+							{displayMsg.reasoning?.trim() ? displayMsg.reasoning : 'Waiting for reasoning…'}
 						</p>
 					</div>
 				{/if}
@@ -119,12 +121,12 @@
 				<span
 					class="font-semibold text-foreground {showThinking
 						? 'assistant-model-name-pulse'
-						: ''}">{msg.sender_name}</span
+						: ''}">{displayMsg.sender_name}</span
 				>
 				<span
 					class="inline-flex items-baseline font-normal text-muted-foreground"
 				>
-					<span>({msg.sender_model ?? 'assistant'})</span>
+					<span>({displayMsg.sender_model ?? 'assistant'})</span>
 					{#if showThinking}
 						<span
 							class="thinking-dots ml-1 text-muted-foreground"
@@ -140,12 +142,12 @@
 					<!-- eslint-disable-next-line svelte/no-at-html-tags -- DOMPurify sanitizes LLM HTML -->
 					{@html renderMarkdown(prefix.rest)}
 				</div>
-			{:else if !prefix && msg.content.trim()}
+			{:else if !prefix && displayMsg.content.trim()}
 				<div
 					class="prose prose-sm max-w-none text-foreground dark:prose-invert prose-headings:mt-3 prose-headings:mb-2 prose-headings:first:mt-0 prose-p:my-2 first:prose-p:mt-0 last:prose-p:mb-0 prose-strong:font-semibold prose-strong:text-foreground prose-pre:my-2"
 				>
 					<!-- eslint-disable-next-line svelte/no-at-html-tags -- DOMPurify sanitizes LLM HTML -->
-					{@html renderMarkdown(msg.content)}
+					{@html renderMarkdown(displayMsg.content)}
 				</div>
 			{/if}
 		</div>

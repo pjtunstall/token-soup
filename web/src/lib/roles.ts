@@ -1,4 +1,5 @@
 import { PUBLIC_API_URL } from '$env/static/public';
+import { clampRoleForDisplay } from '$lib/display-clamp';
 
 export type RoleRow = { id: number; name: string; description: string | null };
 type ListPageParams = { limit?: number; offset?: number };
@@ -38,7 +39,8 @@ export async function fetchRoles(
 		const text = await res.text().catch(() => '');
 		throw new Error(text || `could not load roles (${res.status})`);
 	}
-	return (await res.json()) as RoleRow[];
+	const rows = (await res.json()) as RoleRow[];
+	return rows.map(clampRoleForDisplay);
 }
 
 /** POST /api/roles */
@@ -63,7 +65,8 @@ export async function createRole(
 		const text = await res.text().catch(() => '');
 		throw new Error(text || `could not create role (${res.status})`);
 	}
-	return (await res.json()) as RoleRow;
+	const row = (await res.json()) as RoleRow;
+	return clampRoleForDisplay(row);
 }
 
 /** GET /api/roles + local match check for name uniqueness. */
