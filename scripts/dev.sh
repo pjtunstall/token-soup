@@ -14,9 +14,9 @@ cleanup() {
 
 trap cleanup EXIT INT TERM
 
-echo "Starting Go backend on :8080..."
+echo "Starting Go API on :8080..."
 (
-	cd "$ROOT_DIR/backend"
+	cd "$ROOT_DIR/api"
 	go run ./cmd/token-soup
 ) &
 GO_PID=$!

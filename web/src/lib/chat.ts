@@ -1,6 +1,6 @@
 import { PUBLIC_API_URL } from '$env/static/public';
 
-/** Default interlocutor role name; matches backend openrouter.RoleGuruName / future public.roles.name. */
+/** Default interlocutor role name; matches API openrouter.RoleGuruName / future public.roles.name. */
 export const DEFAULT_ROLE_NAME = 'guru' as const;
 
 /**
@@ -33,7 +33,7 @@ export type AIStreamEvent = {
 	chatId?: number;
 };
 
-/** Matches backend chat.maxTitleRunes (strict display width). */
+/** Matches API chat.maxTitleRunes (strict display width). */
 export const MAX_TITLE_RUNES = 48;
 
 function isApostrophe(rs: string[], i: number): boolean {
@@ -76,7 +76,7 @@ export function truncateWithEllipsis(s: string, maxRunes: number): string {
 	return runes.slice(0, maxRunes - 3).join('') + '...';
 }
 
-/** Mirrors backend FallbackTitleFromUserMessage (cancel / offline title). */
+/** Mirrors API FallbackTitleFromUserMessage (cancel / offline title). */
 export function fallbackTitleFromUserMessage(msg: string): string {
 	const trimmed = msg.trim();
 	if (!trimmed) return '…';
@@ -91,7 +91,7 @@ export function fallbackTitleFromUserMessage(msg: string): string {
 	return truncateWithEllipsis(trimmed, MAX_TITLE_RUNES);
 }
 
-/** Mirrors backend NormalizeChatTitle for client-side defense-in-depth. */
+/** Mirrors API NormalizeChatTitle for client-side defense-in-depth. */
 export function normalizeChatTitle(raw: string, firstUserMessage: string): string {
 	let s = raw
 		.trim()
@@ -156,7 +156,7 @@ async function* parseSSE(body: ReadableStream<Uint8Array>): AsyncGenerator<AIStr
 
 /**
  * POST /api/chat with Bearer token; streams SSE JSON events until the stream ends.
- * Abort the signal to stop the assistant (closes the request; backend cancels OpenRouter).
+ * Abort the signal to stop the assistant (closes the request; API cancels OpenRouter).
  */
 export async function postChat(
 	message: string,

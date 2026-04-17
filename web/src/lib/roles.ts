@@ -2,7 +2,7 @@ import { PUBLIC_API_URL } from '$env/static/public';
 
 export type RoleRow = { id: number; name: string; description: string | null };
 
-/** Empty string = same origin (dev: Vite proxies `/api` to the Go backend). Matches `$lib/chat` apiBase. */
+/** Empty string = same origin (dev: Vite proxies `/api` to the Go API). Matches `$lib/chat` apiBase. */
 function apiBase(): string {
 	const raw = (PUBLIC_API_URL ?? '').trim();
 	if (!raw) return '';

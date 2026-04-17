@@ -10,15 +10,15 @@ if [[ ! -f "$SCHEMA" ]]; then
   exit 1
 fi
 
-if [[ -f "$ROOT/backend/.env" ]]; then
+if [[ -f "$ROOT/api/.env" ]]; then
   set -a
   # shellcheck source=/dev/null
-  source "$ROOT/backend/.env"
+  source "$ROOT/api/.env"
   set +a
 fi
 
 if [[ -z "${DATABASE_URL:-}" ]]; then
-  echo "DATABASE_URL is not set. Put it in backend/.env or export it in the shell." >&2
+  echo "DATABASE_URL is not set. Put it in api/.env or export it in the shell." >&2
   exit 1
 fi
 

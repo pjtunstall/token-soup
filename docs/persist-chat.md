@@ -18,7 +18,7 @@
 
 ## Overview
 
-The Go backend can optionally persist chats and messages to Postgres when `DATABASE_URL` is set at startup. The browser still talks to Supabase only for **auth**; it talks to the Go API for chat. Persistence is **best-effort**: the API prefers clear outcomes (stream + warnings, or HTTP errors before streaming) over silent divergence.
+The Go API can optionally persist chats and messages to Postgres when `DATABASE_URL` is set at startup. The browser still talks to Supabase only for **auth**; it talks to the Go API for chat. Persistence is **best-effort**: the API prefers clear outcomes (stream + warnings, or HTTP errors before streaming) over silent divergence.
 
 OpenRouter **turns** are built from an in-process **`HistoryStore`**, keyed by user and (when applicable) chat id. The database is the **durability** layer for messages, not the source of truth for model context during a normal request (reload-from-DB for cold starts is a future concern).
 
@@ -66,9 +66,9 @@ Persistence is off: nothing is written to Postgres. Chat still works for the lif
 
 #### Remedy
 
-**Implemented today:** The backend starts without a pool when `DATABASE_URL` is missing or empty; it logs a warning and serves chat using **in-memory history only** (no Postgres). No UI change is required—the app keeps working until the process exits.
+**Implemented today:** The API starts without a pool when `DATABASE_URL` is missing or empty; it logs a warning and serves chat using **in-memory history only** (no Postgres). No UI change is required—the app keeps working until the process exits.
 
-**Further actions or future refinements:** To enable persistence, an operator must set `DATABASE_URL` and **restart** the backend. There is no in-app configuration path. A future refinement could surface “persistence off” in the UI or block chat until configured, if product requirements call for it.
+**Further actions or future refinements:** To enable persistence, an operator must set `DATABASE_URL` and **restart** the API. There is no in-app configuration path. A future refinement could surface “persistence off” in the UI or block chat until configured, if product requirements call for it.
 
 #### Implementation
 

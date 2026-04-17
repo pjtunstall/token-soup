@@ -3,7 +3,7 @@
 --
 -- ## Permission model (keep in sync with production; do not rely on dashboard-only changes)
 --
--- The Go API uses DATABASE_URL with a direct Postgres connection (see backend/.env.example: usually role
+-- The Go API uses DATABASE_URL with a direct Postgres connection (see api/.env.example: usually role
 -- `postgres`). JWT auth is validated in Go via SUPABASE_JWKS_URL — not via Postgres roles `anon` or
 -- `authenticated`. The browser does not use PostgREST / Data API against these tables, so we do not
 -- grant `anon`, `authenticated`, or `service_role` on `public` app objects (least privilege).
@@ -22,7 +22,7 @@
 DROP SCHEMA IF EXISTS public CASCADE;
 CREATE SCHEMA public AUTHORIZATION postgres;
 
--- Backend pool role must reference `public` (PostgREST API roles intentionally omitted — see header).
+-- API pool role must reference `public` (PostgREST API roles intentionally omitted — see header).
 GRANT USAGE ON SCHEMA public TO postgres;
 
 CREATE TABLE public.roles (
