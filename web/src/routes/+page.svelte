@@ -596,6 +596,7 @@
 								<ChatPanel
 									{messages}
 									{awaitingAi}
+									pendingAssistantName={currentAssistantName()}
 									bind:messageInput
 									bind:logContainer
 									activeStreamingIndex={activeAiJobId !== ''

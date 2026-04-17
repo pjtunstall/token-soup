@@ -7,6 +7,7 @@
 	let {
 		messages,
 		awaitingAi,
+		pendingAssistantName,
 		messageInput = $bindable(),
 		logContainer = $bindable(),
 		activeStreamingIndex,
@@ -19,6 +20,7 @@
 	}: {
 		messages: ChatMessage[];
 		awaitingAi: boolean;
+		pendingAssistantName: string;
 		messageInput: string;
 		logContainer: HTMLDivElement | null;
 		activeStreamingIndex: number | undefined;
@@ -29,11 +31,19 @@
 		aiMode: boolean;
 		onRequestCompletion: () => void;
 	} = $props();
+
+	const showPendingPlaceholder = $derived(awaitingAi && activeStreamingIndex === undefined);
+	const pendingPlaceholderMessage = $derived<ChatMessage>({
+		sender_type: 'bot',
+		sender_name: pendingAssistantName,
+		sender_model: 'waiting for model',
+		content: ''
+	});
 </script>
 
 <ScrollArea class="min-h-0 flex-1 rounded-md border border-input bg-field">
 	<div bind:this={logContainer} class="min-h-full space-y-2 p-3">
-		{#if messages.length === 0}
+		{#if messages.length === 0 && !showPendingPlaceholder}
 			<p class="text-sm text-muted-foreground">No messages yet.</p>
 		{:else}
 			<ul class="space-y-2">
@@ -45,6 +55,14 @@
 						onToggleReasoning={() => onToggleReasoning(i)}
 					/>
 				{/each}
+				{#if showPendingPlaceholder}
+					<ChatBubble
+						msg={pendingPlaceholderMessage}
+						streamingHere={true}
+						reasoningExpanded={false}
+						onToggleReasoning={() => {}}
+					/>
+				{/if}
 			</ul>
 		{/if}
 	</div>
