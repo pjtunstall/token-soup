@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
+	import { USER_MESSAGE_MAX_CHARS } from '$lib/limits';
 	import HandHelping from '@lucide/svelte/icons/hand-helping';
 	import SendHorizontal from '@lucide/svelte/icons/send-horizontal';
 	import Square from '@lucide/svelte/icons/square';
@@ -54,12 +55,18 @@
 	</div>
 {:else}
 	<form class="flex gap-2" onsubmit={handleSubmit}>
-		<Input
-			type="text"
-			placeholder="Type a message..."
-			bind:value={messageInput}
-			disabled={awaitingAi}
-		/>
+		<div class="min-w-0 flex-1">
+			<Input
+				type="text"
+				placeholder="Type a message..."
+				bind:value={messageInput}
+				maxlength={USER_MESSAGE_MAX_CHARS}
+				disabled={awaitingAi}
+			/>
+			<p class="mt-1 text-[11px] text-muted-foreground">
+				{[...messageInput.trim()].length}/{USER_MESSAGE_MAX_CHARS}
+			</p>
+		</div>
 		{#if awaitingAi}
 			<Button type="button" onclick={onStop} aria-label="Stop">
 				<Square class="size-4" fill="currentColor" stroke="none" />

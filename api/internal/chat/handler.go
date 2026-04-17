@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"unicode/utf8"
 
 	"github.com/lestrrat-go/jwx/v2/jwk"
 
@@ -71,6 +72,17 @@ func ChatHandler(store *HistoryStore, persist *Persist, cache *jwk.Cache, jwksUR
 		if firstUserText == "" && !body.Completion {
 			http.Error(w, "empty message", http.StatusBadRequest)
 			return
+		}
+		if !body.Completion {
+			maxChars := userMessageMaxChars()
+			if utf8.RuneCountInString(firstUserText) > maxChars {
+				http.Error(
+					w,
+					fmt.Sprintf("message too long (max %d characters)", maxChars),
+					http.StatusBadRequest,
+				)
+				return
+			}
 		}
 
 		flusher, ok := w.(http.Flusher)

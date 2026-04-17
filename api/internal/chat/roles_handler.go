@@ -3,10 +3,12 @@ package chat
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/lestrrat-go/jwx/v2/jwk"
@@ -36,6 +38,9 @@ func rolesDBError(w http.ResponseWriter, err error, operation, fallback string) 
 			return
 		case "23505":
 			http.Error(w, "a role with this name already exists", http.StatusConflict)
+			return
+		case "23514":
+			http.Error(w, "role failed validation constraints", http.StatusBadRequest)
 			return
 		}
 	}
@@ -89,6 +94,11 @@ func RolesCollectionHandler(persist *Persist, cache *jwk.Cache, jwksURL string) 
 			name := strings.TrimSpace(body.Name)
 			if name == "" {
 				http.Error(w, "name required", http.StatusBadRequest)
+				return
+			}
+			maxChars := roleNameMaxChars()
+			if utf8.RuneCountInString(name) > maxChars {
+				http.Error(w, fmt.Sprintf("name too long (max %d characters)", maxChars), http.StatusBadRequest)
 				return
 			}
 			row, err := persist.InsertRole(r.Context(), userID, name, body.Description)

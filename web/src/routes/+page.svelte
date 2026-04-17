@@ -26,6 +26,7 @@
 		persistSelectedRoleId
 	} from '$lib/role-selection';
 	import { loadFirstPage, loadNextPage } from '$lib/pagination';
+	import { USER_MESSAGE_MAX_CHARS } from '$lib/limits';
 	import { getDisplayName } from '$lib/session';
 	import { getSupabase } from '$lib/supabase';
 	import type { Session } from '@supabase/supabase-js';
@@ -343,6 +344,13 @@
 		if (signedInMain !== 'chat' || awaitingAi || !session?.access_token || !messageInput.trim())
 			return;
 		const text = messageInput.trim();
+		if ([...text].length > USER_MESSAGE_MAX_CHARS) {
+			pushAssistantBubble(
+				`Error: Message is too long. Maximum is ${USER_MESSAGE_MAX_CHARS} characters.`,
+				undefined
+			);
+			return;
+		}
 		const who = getDisplayName(session);
 		pushUserBubble(who, text);
 		messageInput = '';

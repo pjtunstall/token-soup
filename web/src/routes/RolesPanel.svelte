@@ -2,6 +2,7 @@
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import { ScrollArea } from '$lib/components/ui/scroll-area';
+	import { ROLE_NAME_MAX_CHARS } from '$lib/limits';
 	import { createRole, updateRoleDescription, roleNameExists, type RoleRow } from '$lib/roles';
 	import Feather from '@lucide/svelte/icons/feather';
 	import Trash2 from '@lucide/svelte/icons/trash-2';
@@ -96,6 +97,10 @@
 					editorError = 'Role name is required.';
 					return;
 				}
+				if ([...name].length > ROLE_NAME_MAX_CHARS) {
+					editorError = `Role name must be ${ROLE_NAME_MAX_CHARS} characters or fewer.`;
+					return;
+				}
 				const exists = await roleNameExists(accessToken, name);
 				if (exists) {
 					editorError = `Name '${name}' already exists`;
@@ -169,17 +174,21 @@
 							editorError = '';
 						}}
 						placeholder="Role name"
+						maxlength={ROLE_NAME_MAX_CHARS}
 						disabled={editorSaving}
 						autocomplete="off"
 						class="h-8 text-sm"
 					/>
+					<p class="text-[11px] text-muted-foreground">
+						{[...editorName.trim()].length}/{ROLE_NAME_MAX_CHARS}
+					</p>
 				</div>
 			{/if}
 			<div class="min-h-0 flex-1">
 				<textarea
 					class="role-scrollbar h-full min-h-[10rem] w-full resize-none rounded-md border border-input bg-field px-2 py-1.5 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
 					placeholder={editorIsNew
-						? 'Describe how this role should behave...'
+						? 'Describe how this character should behave...'
 						: 'Edit role description...'}
 					bind:value={editorDescription}
 					oninput={() => {
