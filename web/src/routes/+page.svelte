@@ -318,6 +318,7 @@
 		void supabase.auth.getSession().then(({ data: { session: s } }) => {
 			session = s;
 			authState = s ? 'signed_in' : 'signed_out';
+			if (s) markSessionSeen();
 			if (s?.access_token) void loadRoleRows();
 		});
 
@@ -327,6 +328,7 @@
 			session = s;
 			authState = s ? 'signed_in' : 'signed_out';
 			if (s?.access_token) {
+				markSessionSeen();
 				void loadRoleRows();
 			} else {
 				selectedRoleId = null;
@@ -511,7 +513,7 @@
 		} catch (e) {
 			roleRows = [];
 			rolesHasMore = true;
-			rolesLoadError = e instanceof Error ? e.message : String(e);
+			rolesLoadError = rolesErrorMessage(e);
 		} finally {
 			rolesLoading = false;
 		}
@@ -520,17 +522,44 @@
 
 	let rolesLoadingMore = $state(false);
 	let rolesHasMore = $state(true);
+	const HAD_SESSION_STORAGE_KEY = 'token-soup:hadSession';
+
+	function markSessionSeen() {
+		try {
+			localStorage.setItem(HAD_SESSION_STORAGE_KEY, '1');
+		} catch {
+			/* ignore storage failures */
+		}
+	}
+
+	function hasSeenSession(): boolean {
+		try {
+			return localStorage.getItem(HAD_SESSION_STORAGE_KEY) === '1';
+		} catch {
+			return false;
+		}
+	}
+
+	function rolesErrorMessage(err: unknown): string {
+		const message = err instanceof Error ? err.message : String(err);
+		if (message.trim().toLowerCase() === 'unauthorized' && hasSeenSession()) {
+			return 'Session expired. Please sign in again.';
+		}
+		return message;
+	}
 
 	async function loadMoreRoles() {
 		const accessToken = session?.access_token;
 		if (!accessToken || rolesLoading || rolesLoadingMore || !rolesHasMore) return;
 		rolesLoadingMore = true;
+		rolesLoadError = '';
 		try {
 			const page = await loadNextPage((params) => fetchRoles(accessToken, params), LIST_BATCH_SIZE, roleRows);
 			roleRows = page.rows;
 			rolesHasMore = page.hasMore;
+			rolesLoadError = '';
 		} catch (e) {
-			rolesLoadError = e instanceof Error ? e.message : String(e);
+			rolesLoadError = rolesErrorMessage(e);
 		} finally {
 			rolesLoadingMore = false;
 		}
@@ -546,7 +575,7 @@
 			await deleteRole(session.access_token, r.id);
 			await loadRoleRows();
 		} catch (err) {
-			rolesLoadError = err instanceof Error ? err.message : String(err);
+			rolesLoadError = rolesErrorMessage(err);
 		} finally {
 			deletingRoleId = null;
 		}
