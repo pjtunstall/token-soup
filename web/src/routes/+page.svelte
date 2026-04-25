@@ -597,7 +597,32 @@
 			onCurrentChat={handleSpeechBubble}
 			onToggleTheme={handleToggleTheme}
 			onSignOut={() => void signOut()}
-		/>
+		>
+			<svelte:fragment slot="mobile-roles-sidebar-content">
+				{#if authState === 'signed_in'}
+					<div class="mt-1 min-h-0 rounded-md border border-border/70 bg-field/45 p-2 md:hidden">
+						<RolesPanel
+							{roleRows}
+							{rolesLoading}
+							{rolesLoadError}
+							{rolesLoadingMore}
+							{rolesHasMore}
+							{selectedRoleId}
+							{deletingRoleId}
+							{userTurn}
+							displayName={getDisplayName(session)}
+							accessToken={session?.access_token ?? ''}
+							onSelectRole={selectRoleAsCurrent}
+							onSelectUser={selectUserTurn}
+							onDoubleClickRole={handleDoubleClickRole}
+							onRolesChanged={loadRoleRows}
+							onDeleteRole={deleteRoleRow}
+							onLoadMore={() => void loadMoreRoles()}
+						/>
+					</div>
+				{/if}
+			</svelte:fragment>
+		</AppHeader>
 		<CardContent class="flex min-h-0 flex-1 flex-col gap-3">
 			{#if persistWarning}
 				<div
@@ -650,7 +675,7 @@
 						{/if}
 					</div>
 					<aside
-						class="flex w-full shrink-0 flex-col gap-2 rounded-md border border-border/70 bg-field/45 p-2 md:w-56"
+						class="hidden w-full shrink-0 flex-col gap-2 rounded-md border border-border/70 bg-field/45 p-2 md:flex md:w-56"
 						aria-label="Roles panel"
 					>
 						<RolesPanel

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { fade } from 'svelte/transition';
+	import { fade, fly } from 'svelte/transition';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
 	import { CardDescription, CardHeader, CardTitle } from '$lib/components/ui/card';
@@ -8,6 +8,9 @@
 	import Plus from '@lucide/svelte/icons/plus';
 	import Moon from '@lucide/svelte/icons/moon';
 	import Sun from '@lucide/svelte/icons/sun';
+	import Menu from '@lucide/svelte/icons/menu';
+	import Drama from '@lucide/svelte/icons/drama';
+	import X from '@lucide/svelte/icons/x';
 
 	let {
 		authState,
@@ -30,6 +33,8 @@
 	} = $props();
 
 	let headerHoverTip = $state<{ text: string; x: number; y: number } | null>(null);
+	let mobileMenuOpen = $state(false);
+	let mobileRolesOpen = $state(false);
 
 	function showHeaderHoverTip(text: string, e: PointerEvent) {
 		const el = e.currentTarget;
@@ -41,17 +46,69 @@
 	function hideHeaderHoverTip() {
 		headerHoverTip = null;
 	}
+
+	function toggleMobileMenu() {
+		const next = !mobileMenuOpen;
+		mobileMenuOpen = next;
+		if (next) mobileRolesOpen = false;
+	}
+
+	function toggleMobileRoles() {
+		const next = !mobileRolesOpen;
+		mobileRolesOpen = next;
+		if (next) mobileMenuOpen = false;
+	}
+
+	function closeMobileMenu() {
+		mobileMenuOpen = false;
+	}
+
+	function closeMobileRoles() {
+		mobileRolesOpen = false;
+	}
+
+	function runMenuAction(action: () => void) {
+		action();
+		closeMobileMenu();
+	}
 </script>
 
 <CardHeader class="relative flex shrink-0 flex-col items-stretch gap-2 space-y-0">
-	<div class="flex min-w-0 flex-col gap-2 md:flex-row md:items-center">
-		<div class="w-fit max-w-[20rem] min-w-0 shrink space-y-1 md:order-1">
+	<div class="flex min-w-0 items-start gap-2 md:items-center">
+		<div class="w-fit max-w-[20rem] min-w-0 shrink space-y-1">
 			<CardTitle class="text-2xl text-primary">Token Soup</CardTitle>
 			<CardDescription class="text-base break-words truncate"
 				>{signedInMain === 'chats' ? 'Chats' : sessionSubtitle}</CardDescription
 			>
 		</div>
-		<div class="flex shrink-0 flex-wrap items-center gap-2 md:order-2 md:ml-auto">
+		<div class="min-w-0 flex-1" aria-hidden="true"></div>
+		<Button
+			type="button"
+			variant="outline"
+			size="icon-sm"
+			class="header-control-btn shrink-0 md:hidden"
+			onclick={toggleMobileMenu}
+			aria-label={mobileMenuOpen ? 'Close menu' : 'Open menu'}
+			aria-haspopup="menu"
+			aria-expanded={mobileMenuOpen}
+			aria-controls="mobile-header-menu"
+		>
+			<Menu class="size-4" />
+		</Button>
+		<Button
+			type="button"
+			variant="outline"
+			size="icon-sm"
+			class="header-control-btn shrink-0 md:hidden"
+			onclick={toggleMobileRoles}
+			aria-label={mobileRolesOpen ? 'Close roles' : 'Open roles'}
+			aria-haspopup="menu"
+			aria-expanded={mobileRolesOpen}
+			aria-controls="mobile-roles-menu"
+		>
+			<Drama class="size-4" />
+		</Button>
+		<div class="hidden shrink-0 items-center gap-2 md:ml-auto md:flex">
 			<Button
 				type="button"
 				variant="outline"
@@ -118,6 +175,122 @@
 			{/if}
 		</div>
 	</div>
+	{#if mobileMenuOpen}
+		<div class="fixed inset-0 z-[190] bg-black/45 md:hidden" onclick={closeMobileMenu}></div>
+		<aside
+			id="mobile-header-menu"
+			class="fixed right-0 top-0 z-[200] flex h-screen w-[18rem] flex-col gap-3 border-l border-border bg-card p-3 shadow-card md:hidden"
+			role="menu"
+			transition:fly={{ x: 20, duration: 170 }}
+		>
+			<div class="flex items-center justify-between">
+				<p class="text-sm font-medium text-muted-foreground">Menu</p>
+				<Button
+					type="button"
+					variant="outline"
+					size="icon-sm"
+					class="header-control-btn shrink-0"
+					onclick={closeMobileMenu}
+					aria-label="Close menu"
+				>
+					<X class="size-4" />
+				</Button>
+			</div>
+			<div class="flex flex-col gap-2">
+				<Button
+					type="button"
+					variant="outline"
+					size="sm"
+					class="header-control-btn justify-start gap-2"
+					onclick={() => runMenuAction(onNewChat)}
+					aria-label="New chat"
+				>
+					<Plus class="size-4" />
+					<span>New chat</span>
+				</Button>
+				<Button
+					type="button"
+					variant={signedInMain === 'chats' ? 'secondary' : 'outline'}
+					size="sm"
+					class="header-control-btn justify-start gap-2"
+					onclick={() => runMenuAction(onChatGallery)}
+					aria-label="Chats"
+					aria-pressed={signedInMain === 'chats'}
+				>
+					<GalleryVerticalEnd class="size-4" />
+					<span>Chats</span>
+				</Button>
+				<Button
+					type="button"
+					variant={signedInMain === 'chat' ? 'secondary' : 'outline'}
+					size="sm"
+					class="header-control-btn justify-start gap-2"
+					onclick={() => runMenuAction(onCurrentChat)}
+					aria-label="Current chat"
+					aria-pressed={signedInMain === 'chat'}
+				>
+					<MessagesSquare class="size-4" />
+					<span>Current chat</span>
+				</Button>
+				<Button
+					type="button"
+					variant="outline"
+					size="sm"
+					class="header-control-btn justify-start gap-2"
+					onclick={() => runMenuAction(onToggleTheme)}
+					aria-label="Toggle color theme"
+				>
+					<Sun class="hidden size-4 dark:block" />
+					<Moon class="size-4 dark:hidden" />
+					<span>Theme</span>
+				</Button>
+			</div>
+			{#if authState === 'signed_in'}
+				<Button
+					type="button"
+					variant="outline"
+					size="sm"
+					class="header-control-btn justify-start gap-2"
+					onclick={() => runMenuAction(onSignOut)}
+				>
+					<span>Sign out</span>
+				</Button>
+			{:else if authState === 'signed_out'}
+				<Badge variant="secondary">Signed out</Badge>
+			{:else}
+				<Badge variant="secondary">…</Badge>
+			{/if}
+			<div class="min-h-0 flex-1 overflow-y-auto">
+				<slot name="mobile-sidebar-content" />
+			</div>
+		</aside>
+	{/if}
+	{#if mobileRolesOpen}
+		<div class="fixed inset-0 z-[190] bg-black/45 md:hidden" onclick={closeMobileRoles}></div>
+		<aside
+			id="mobile-roles-menu"
+			class="fixed right-0 top-0 z-[200] flex h-screen w-[18rem] flex-col gap-3 border-l border-border bg-card p-3 shadow-card md:hidden"
+			role="menu"
+			transition:fly={{ x: 20, duration: 170 }}
+		>
+			<div class="flex items-center justify-between">
+				<p class="text-sm font-medium text-muted-foreground">Roles</p>
+				<Button
+					type="button"
+					variant="outline"
+					size="icon-sm"
+					class="header-control-btn shrink-0"
+					onclick={closeMobileRoles}
+					aria-label="Close roles"
+				>
+					<X class="size-4" />
+				</Button>
+			</div>
+			<div class="min-h-0 flex-1 overflow-y-auto">
+				<slot name="mobile-roles-sidebar-content" />
+			</div>
+		</aside>
+	{/if}
 </CardHeader>
 
 {#if headerHoverTip}

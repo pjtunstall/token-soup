@@ -56,16 +56,21 @@
 {:else}
 	<form class="flex gap-2" onsubmit={handleSubmit}>
 		<div class="min-w-0 flex-1">
-			<Input
-				type="text"
-				placeholder="Type a message..."
-				bind:value={messageInput}
-				maxlength={USER_MESSAGE_MAX_CHARS}
-				disabled={awaitingAi}
-			/>
-			<p class="mt-1 text-[11px] text-muted-foreground">
-				{[...messageInput.trim()].length}/{USER_MESSAGE_MAX_CHARS}
-			</p>
+			<div class="relative">
+				<Input
+					type="text"
+					placeholder="Type a message..."
+					bind:value={messageInput}
+					maxlength={USER_MESSAGE_MAX_CHARS}
+					disabled={awaitingAi}
+					class="pr-16"
+				/>
+				<p
+					class="pointer-events-none absolute bottom-1 right-2 text-[11px] text-muted-foreground/90 dark:text-muted-foreground"
+				>
+					{[...messageInput.trim()].length}/{USER_MESSAGE_MAX_CHARS}
+				</p>
+			</div>
 		</div>
 		{#if awaitingAi}
 			<Button type="button" onclick={onStop} aria-label="Stop">

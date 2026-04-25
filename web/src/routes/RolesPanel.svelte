@@ -167,31 +167,36 @@
 	{editorOpen ? editorName || 'New role' : displayName}
 </button>
 
-<div class="min-h-0 flex-1">
+<div class="mt-2 min-h-0 flex-1 md:mt-0">
 	{#if editorOpen}
 		<div class="flex h-full min-h-0 flex-col gap-2">
 			{#if editorIsNew}
-				<div class="shrink-0 space-y-2">
-					<Input
-						type="text"
-						bind:value={editorName}
-						oninput={() => {
-							editorError = '';
-						}}
-						placeholder="Role name"
-						maxlength={ROLE_NAME_MAX_CHARS}
-						disabled={editorSaving}
-						autocomplete="off"
-						class="h-8 text-sm"
-					/>
-					<p class="text-[11px] text-muted-foreground">
-						{[...editorName.trim()].length}/{ROLE_NAME_MAX_CHARS}
-					</p>
+				<div class="shrink-0">
+					<div class="relative">
+						<Input
+							type="text"
+							bind:value={editorName}
+							oninput={() => {
+								editorError = '';
+							}}
+							placeholder="Role name"
+							maxlength={ROLE_NAME_MAX_CHARS}
+							disabled={editorSaving}
+							autocomplete="off"
+							class="h-8 pr-16 text-sm"
+						/>
+						<p
+							class="pointer-events-none absolute bottom-1 right-2 text-[11px] text-muted-foreground/90 dark:text-muted-foreground"
+						>
+							{[...editorName.trim()].length}/{ROLE_NAME_MAX_CHARS}
+						</p>
+					</div>
 				</div>
 			{/if}
 			<div class="min-h-0 flex-1">
+				<div class="relative h-full min-h-[10rem]">
 				<textarea
-					class="role-scrollbar h-full min-h-[10rem] w-full resize-none rounded-md border border-input bg-field px-2 py-1.5 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+					class="role-scrollbar h-full min-h-[10rem] w-full resize-none rounded-md border border-input bg-field px-2 py-1.5 pb-6 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
 					placeholder={editorIsNew
 						? 'Describe how this character should behave...'
 						: 'Edit role description...'}
@@ -202,9 +207,12 @@
 					}}
 					disabled={editorSaving}
 				></textarea>
-				<p class="mt-1 text-[11px] text-muted-foreground">
+				<p
+					class="pointer-events-none absolute bottom-1.5 right-2 text-[11px] text-muted-foreground/90 dark:text-muted-foreground"
+				>
 					{[...editorDescription.trim()].length}/{ROLE_DESCRIPTION_MAX_CHARS}
 				</p>
+				</div>
 				{#if editorError}
 					<p class="mt-2 text-xs text-destructive">{editorError}</p>
 				{/if}
@@ -237,18 +245,18 @@
 			class="h-full min-h-0"
 			bind:viewportRef
 		>
-			<div class="space-y-2 pr-2">
+			<div class="pr-2">
 				{#if rolesLoading}
-					<p class="text-xs text-muted-foreground">Loading roles…</p>
+					<p class="mb-2 text-xs text-muted-foreground">Loading roles…</p>
 				{/if}
 				{#if rolesLoadError}
-					<p class="text-xs text-destructive">{rolesLoadError}</p>
+					<p class="mb-2 text-xs text-destructive">{rolesLoadError}</p>
 				{/if}
 				<Button
 					type="button"
 					variant="outline"
 					size="sm"
-					class="header-control-btn w-full justify-start"
+					class="header-control-btn new-role-btn my-3 w-full justify-start font-semibold"
 					onclick={openNewRoleEditor}
 				>
 					New role
@@ -298,7 +306,7 @@
 					{/each}
 				</ul>
 				{#if rolesLoadingMore}
-					<p class="text-xs text-muted-foreground">Loading more roles…</p>
+					<p class="mt-2 text-xs text-muted-foreground">Loading more roles…</p>
 				{/if}
 			</div>
 		</ScrollArea>
@@ -351,5 +359,21 @@
 		border-color: color-mix(in oklch, var(--primary) 60%, var(--border)) !important;
 		color: color-mix(in oklch, var(--foreground) 94%, var(--primary));
 		box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--primary) 34%, transparent);
+	}
+
+	:global(html.dark .new-role-btn) {
+		background-color: color-mix(in oklch, var(--secondary) 62%, black 38%) !important;
+		border-color: color-mix(in oklch, var(--secondary) 78%, var(--foreground) 22%) !important;
+		color: color-mix(in oklch, var(--foreground) 96%, var(--secondary)) !important;
+		box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--secondary) 52%, transparent) !important;
+	}
+
+	:global(html.dark .new-role-btn:hover) {
+		background-color: color-mix(in oklch, var(--accent) 100%, var(--card)) !important;
+		border-color: color-mix(in oklch, var(--foreground) 58%, var(--accent)) !important;
+		color: color-mix(in oklch, var(--foreground) 100%, var(--accent)) !important;
+		box-shadow:
+			inset 0 0 0 1px color-mix(in oklch, var(--foreground) 42%, var(--accent)) !important,
+			0 0 0 1px color-mix(in oklch, var(--accent) 35%, transparent) !important;
 	}
 </style>
