@@ -4,7 +4,8 @@ services:
       context: ./api
     image: token-soup-api:dev
     container_name: token-soup-api
-    network_mode: host
+    ports:
+      - "8080:8080"
     env_file:
       - ./api/.env
     restart: unless-stopped
