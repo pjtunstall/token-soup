@@ -587,7 +587,7 @@
 </script>
 
 <main class="mx-auto flex min-h-screen w-full max-w-3xl items-center p-4">
-	<Card class="flex h-[80vh] min-h-0 w-full flex-col">
+	<Card class="flex min-h-[80vh] w-full flex-col md:h-[80vh] md:min-h-0">
 		<AppHeader
 			{authState}
 			{signedInMain}
@@ -612,7 +612,7 @@
 			{:else if authState === 'signed_out'}
 				<AuthForm {supabase} />
 			{:else}
-				<div class="flex min-h-0 flex-1 gap-3">
+				<div class="flex min-h-0 flex-1 flex-col gap-3 md:flex-row">
 					<div class="flex min-h-0 min-w-0 flex-1 flex-col">
 						{#if signedInMain === 'chats'}
 							<div class="flex min-h-0 flex-1 flex-col">
@@ -650,7 +650,7 @@
 						{/if}
 					</div>
 					<aside
-						class="flex w-56 shrink-0 flex-col gap-2 rounded-md border border-border/70 bg-field/45 p-2"
+						class="flex w-full shrink-0 flex-col gap-2 rounded-md border border-border/70 bg-field/45 p-2 md:w-56"
 						aria-label="Roles panel"
 					>
 						<RolesPanel

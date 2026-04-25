@@ -44,15 +44,14 @@
 </script>
 
 <CardHeader class="relative flex shrink-0 flex-col items-stretch gap-2 space-y-0">
-	<div class="flex min-w-0 items-center gap-2">
-		<div class="w-fit max-w-[20rem] min-w-0 shrink space-y-1">
+	<div class="flex min-w-0 flex-col gap-2 md:flex-row md:items-center">
+		<div class="w-fit max-w-[20rem] min-w-0 shrink space-y-1 md:order-1">
 			<CardTitle class="text-2xl text-primary">Token Soup</CardTitle>
 			<CardDescription class="text-base break-words truncate"
 				>{signedInMain === 'chats' ? 'Chats' : sessionSubtitle}</CardDescription
 			>
 		</div>
-		<div class="min-w-0 flex-1" aria-hidden="true"></div>
-		<div class="flex shrink-0 items-center gap-2">
+		<div class="flex shrink-0 flex-wrap items-center gap-2 md:order-2 md:ml-auto">
 			<Button
 				type="button"
 				variant="outline"
