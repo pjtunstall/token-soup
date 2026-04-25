@@ -7,7 +7,7 @@ alwaysApply: true
 
 - Don't introduce any new comments unless asked to.
 - Comments should adhere to the conventions of standard English punctuation, including a trailing period for full sentences.
-- Comments should be addressed to readers who are not privy to our conversations or previous steps in development, thus avoid comments like `dark mode stays unchanged` (unchanged from what?).
+- Comments should be addressed to readers who are not privy to our conversations and so should not refer to how something changed relative to a previous state of the codebase.
 
 ## Punctuation
 
