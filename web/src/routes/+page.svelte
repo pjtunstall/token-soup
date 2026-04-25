@@ -6,12 +6,10 @@
 	import {
 		appendAssistantMessage,
 		appendUserMessage,
-		applyAnswerDelta,
-		applyReasoningDelta,
-		applyReplacement
+		reduceStreamEvent
 	} from '$lib/chat-message-state';
 	import { USER_MESSAGE_MAX_CHARS } from '$lib/limits';
-	import { getDisplayName } from '$lib/session';
+	import { getDisplayName, markSessionSeen, rolesErrorMessage } from '$lib/session';
 	import { getSupabase } from '$lib/supabase';
 	import { RolesController } from '$lib/roles-controller.svelte';
 	import { ChatsController } from '$lib/chats-controller.svelte';
@@ -51,40 +49,15 @@
 	let rolesPanelRef = $state<RolesPanel | null>(null);
 
 	const LIST_BATCH_SIZE = 10;
-	const HAD_SESSION_STORAGE_KEY = 'token-soup:hadSession';
 
 	const supabase = getSupabase();
-
-	function markSessionSeen() {
-		try {
-			localStorage.setItem(HAD_SESSION_STORAGE_KEY, '1');
-		} catch {
-			/* ignore storage failures */
-		}
-	}
-
-	function hasSeenSession(): boolean {
-		try {
-			return localStorage.getItem(HAD_SESSION_STORAGE_KEY) === '1';
-		} catch {
-			return false;
-		}
-	}
-
-	function rolesErrorMessage(err: unknown): string {
-		const message = err instanceof Error ? err.message : String(err);
-		if (message.trim().toLowerCase() === 'unauthorized' && hasSeenSession()) {
-			return 'Session expired. Please sign in again.';
-		}
-		return message;
-	}
 
 	const roles = new RolesController({
 		getAccessToken: () => session?.access_token,
 		getUserId: () => session?.user?.id,
 		pageSize: LIST_BATCH_SIZE,
 		getStorage: () => localStorage,
-		mapError: rolesErrorMessage
+		mapError: (err) => rolesErrorMessage(err, localStorage)
 	});
 
 	const chats = new ChatsController({
@@ -105,25 +78,9 @@
 		let titleReceivedThisRequest = false;
 		let abortedThisRequest = false;
 		function onStreamEvent(parsed: AIStreamEvent) {
-			if (parsed.type === 'chat_session' && typeof parsed.chatId === 'number') {
-				chatId = parsed.chatId;
-				persistWarning = '';
-				persistEphemeral = false;
-				return;
-			}
-			if (parsed.type === 'persist_warning') {
-				persistWarning =
-					(parsed.text ?? '').trim() || 'Your chat could not be saved to the server.';
-				if (chatId == null) {
-					persistEphemeral = true;
-				}
-				return;
-			}
-			if (parsed.type === 'chat_title') {
-				titleReceivedThisRequest = true;
-				sessionSubtitle = normalizeChatTitle(parsed.text ?? '', '');
-				return;
-			}
+			const meta = handleChatMetaEvent(parsed, '');
+			if (meta === 'chat_title') titleReceivedThisRequest = true;
+			if (meta) return;
 			handleStreamEvent(parsed);
 		}
 		try {
@@ -189,77 +146,51 @@
 	}
 
 	function handleStreamEvent(parsed: AIStreamEvent) {
-		const jobId = parsed.jobId !== undefined ? String(parsed.jobId) : '';
-		switch (parsed.type) {
-			case 'ai_start': {
-				const idx = pushAssistantBubble(parsed.text ?? '', parsed.name);
-				if (jobId) aiBubbleIndexByJobId[jobId] = idx;
-				awaitingAi = true;
-				activeAiJobId = jobId;
-				return;
+		const prevMessages = messages;
+		const next = reduceStreamEvent(
+			{ messages, aiBubbleIndexByJobId, reasoningExpandedByIndex },
+			parsed,
+			roles.assistantName
+		);
+		messages = next.messages;
+		aiBubbleIndexByJobId = next.aiBubbleIndexByJobId;
+		reasoningExpandedByIndex = next.reasoningExpandedByIndex;
+		if (next.lifecycle?.kind === 'started') {
+			awaitingAi = true;
+			activeAiJobId = next.lifecycle.jobId;
+		} else if (next.lifecycle?.kind === 'ended') {
+			if (next.lifecycle.jobId && next.lifecycle.jobId === activeAiJobId) {
+				awaitingAi = false;
+				activeAiJobId = '';
 			}
-			case 'ai_reasoning_delta': {
-				const deltaText = parsed.text ?? '';
-				if (!deltaText) return;
-				if (!jobId) return;
-				let idx = aiBubbleIndexByJobId[jobId];
-				if (idx === undefined) {
-					idx = pushAssistantBubble(parsed.name ? `${parsed.name}: ` : '', parsed.name);
-					aiBubbleIndexByJobId[jobId] = idx;
-					awaitingAi = true;
-					activeAiJobId = jobId;
-				}
-				messages = applyReasoningDelta(messages, idx, roles.assistantName, deltaText, parsed.name);
-				scheduleScroll();
-				return;
-			}
-			case 'ai_delta': {
-				if (!jobId) {
-					pushAssistantBubble(parsed.text ?? '', parsed.name);
-					return;
-				}
-				const idx = aiBubbleIndexByJobId[jobId];
-				const deltaText = parsed.text ?? '';
-				if (idx === undefined) {
-					const newIdx = pushAssistantBubble(deltaText, parsed.name);
-					aiBubbleIndexByJobId[jobId] = newIdx;
-					return;
-				}
-				const answerStarted = deltaText.trim() !== '';
-				if (answerStarted) {
-					reasoningExpandedByIndex = { ...reasoningExpandedByIndex, [idx]: false };
-				}
-				messages = applyAnswerDelta(messages, idx, roles.assistantName, deltaText, parsed.name);
-				scheduleScroll();
-				return;
-			}
-			case 'ai_replace': {
-				if (!jobId) {
-					pushAssistantBubble(parsed.text ?? '', parsed.name);
-					return;
-				}
-				const idx = aiBubbleIndexByJobId[jobId];
-				const replacement = parsed.text ?? '';
-				if (idx === undefined) {
-					const newIdx = pushAssistantBubble(replacement, parsed.name);
-					aiBubbleIndexByJobId[jobId] = newIdx;
-					return;
-				}
-				messages = applyReplacement(messages, idx, roles.assistantName, replacement, parsed.name);
-				scheduleScroll();
-				return;
-			}
-			case 'ai_end': {
-				if (jobId) delete aiBubbleIndexByJobId[jobId];
-				if (jobId && jobId === activeAiJobId) {
-					awaitingAi = false;
-					activeAiJobId = '';
-				}
-				return;
-			}
-			default:
-				return;
 		}
+		if (next.messages !== prevMessages) scheduleScroll();
+	}
+
+	type ChatMetaEventKind = 'chat_session' | 'persist_warning' | 'chat_title';
+
+	function handleChatMetaEvent(
+		parsed: AIStreamEvent,
+		firstUserMessage: string
+	): ChatMetaEventKind | null {
+		if (parsed.type === 'chat_session' && typeof parsed.chatId === 'number') {
+			chatId = parsed.chatId;
+			persistWarning = '';
+			persistEphemeral = false;
+			return 'chat_session';
+		}
+		if (parsed.type === 'persist_warning') {
+			persistWarning = (parsed.text ?? '').trim() || 'Your chat could not be saved to the server.';
+			if (chatId == null) {
+				persistEphemeral = true;
+			}
+			return 'persist_warning';
+		}
+		if (parsed.type === 'chat_title') {
+			sessionSubtitle = normalizeChatTitle(parsed.text ?? '', firstUserMessage);
+			return 'chat_title';
+		}
+		return null;
 	}
 
 	async function signOut() {
@@ -281,7 +212,7 @@
 		void supabase.auth.getSession().then(({ data: { session: s } }) => {
 			session = s;
 			authState = s ? 'signed_in' : 'signed_out';
-			if (s) markSessionSeen();
+			if (s) markSessionSeen(localStorage);
 			if (s?.access_token) void roles.load();
 		});
 
@@ -291,7 +222,7 @@
 			session = s;
 			authState = s ? 'signed_in' : 'signed_out';
 			if (s?.access_token) {
-				markSessionSeen();
+				markSessionSeen(localStorage);
 				void roles.load();
 			} else {
 				roles.reset();
@@ -319,24 +250,7 @@
 		awaitingAi = true;
 		abortController = new AbortController();
 		function onStreamEvent(parsed: AIStreamEvent) {
-			if (parsed.type === 'chat_session' && typeof parsed.chatId === 'number') {
-				chatId = parsed.chatId;
-				persistWarning = '';
-				persistEphemeral = false;
-				return;
-			}
-			if (parsed.type === 'persist_warning') {
-				persistWarning =
-					(parsed.text ?? '').trim() || 'Your chat could not be saved to the server.';
-				if (chatId == null) {
-					persistEphemeral = true;
-				}
-				return;
-			}
-			if (parsed.type === 'chat_title') {
-				sessionSubtitle = normalizeChatTitle(parsed.text ?? '', text);
-				return;
-			}
+			handleChatMetaEvent(parsed, text);
 		}
 		try {
 			await postChat(
@@ -448,7 +362,7 @@
 			onToggleTheme={handleToggleTheme}
 			onSignOut={() => void signOut()}
 		>
-			<svelte:fragment slot="mobile-roles-sidebar-content">
+			{#snippet mobileRolesSidebarContent()}
 				{#if authState === 'signed_in'}
 					<div class="mt-1 min-h-0 rounded-md border border-border/70 bg-field/45 p-2 md:hidden">
 						<RolesPanel
@@ -471,7 +385,7 @@
 						/>
 					</div>
 				{/if}
-			</svelte:fragment>
+			{/snippet}
 		</AppHeader>
 		<CardContent class="flex min-h-0 flex-1 flex-col gap-3">
 			{#if persistWarning}

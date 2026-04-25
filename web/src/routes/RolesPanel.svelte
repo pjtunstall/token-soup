@@ -146,7 +146,7 @@
 	});
 
 	$effect(() => {
-		roleRows.length;
+		void roleRows.length;
 		maybeLoadMoreRoles();
 	});
 </script>
@@ -186,7 +186,7 @@
 							class="h-8 pr-16 text-sm"
 						/>
 						<p
-							class="pointer-events-none absolute bottom-1 right-2 text-[11px] text-muted-foreground/90 dark:text-muted-foreground"
+							class="pointer-events-none absolute right-2 bottom-1 text-[11px] text-muted-foreground/90 dark:text-muted-foreground"
 						>
 							{[...editorName.trim()].length}/{ROLE_NAME_MAX_CHARS}
 						</p>
@@ -195,23 +195,23 @@
 			{/if}
 			<div class="min-h-0 flex-1">
 				<div class="relative h-full min-h-[10rem]">
-				<textarea
-					class="role-scrollbar h-full min-h-[10rem] w-full resize-none rounded-md border border-input bg-field px-2 py-1.5 pb-6 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-					placeholder={editorIsNew
-						? 'Describe how this character should behave...'
-						: 'Edit role description...'}
-					bind:value={editorDescription}
-					maxlength={ROLE_DESCRIPTION_MAX_CHARS}
-					oninput={() => {
-						editorError = '';
-					}}
-					disabled={editorSaving}
-				></textarea>
-				<p
-					class="pointer-events-none absolute bottom-1.5 right-2 text-[11px] text-muted-foreground/90 dark:text-muted-foreground"
-				>
-					{[...editorDescription.trim()].length}/{ROLE_DESCRIPTION_MAX_CHARS}
-				</p>
+					<textarea
+						class="role-scrollbar h-full min-h-[10rem] w-full resize-none rounded-md border border-input bg-field px-2 py-1.5 pb-6 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+						placeholder={editorIsNew
+							? 'Describe how this character should behave...'
+							: 'Edit role description...'}
+						bind:value={editorDescription}
+						maxlength={ROLE_DESCRIPTION_MAX_CHARS}
+						oninput={() => {
+							editorError = '';
+						}}
+						disabled={editorSaving}
+					></textarea>
+					<p
+						class="pointer-events-none absolute right-2 bottom-1.5 text-[11px] text-muted-foreground/90 dark:text-muted-foreground"
+					>
+						{[...editorDescription.trim()].length}/{ROLE_DESCRIPTION_MAX_CHARS}
+					</p>
 				</div>
 				{#if editorError}
 					<p class="mt-2 text-xs text-destructive">{editorError}</p>
@@ -232,7 +232,9 @@
 						type="button"
 						size="sm"
 						class="flex-1"
-						disabled={editorSaving || (editorIsNew && !editorName.trim()) || !editorDescription.trim()}
+						disabled={editorSaving ||
+							(editorIsNew && !editorName.trim()) ||
+							!editorDescription.trim()}
 						onclick={() => void saveEditor()}
 					>
 						Save
@@ -241,10 +243,7 @@
 			</div>
 		</div>
 	{:else}
-		<ScrollArea
-			class="h-full min-h-0"
-			bind:viewportRef
-		>
+		<ScrollArea class="h-full min-h-0" bind:viewportRef>
 			<div class="pr-2">
 				{#if rolesLoading}
 					<p class="mb-2 text-xs text-muted-foreground">Loading roles…</p>
@@ -340,8 +339,10 @@
 		color: color-mix(in oklch, var(--foreground) 82%, var(--primary));
 	}
 
-	:global(html:not(.dark) .role-option-btn[data-selected='true'],
-	html:not(.dark) .user-btn[data-selected='true']) {
+	:global(
+		html:not(.dark) .role-option-btn[data-selected='true'],
+		html:not(.dark) .user-btn[data-selected='true']
+	) {
 		background-color: color-mix(in oklch, var(--primary) 22%, var(--background)) !important;
 		border-color: color-mix(in oklch, var(--primary) 62%, var(--border)) !important;
 		color: color-mix(in oklch, var(--foreground) 88%, var(--primary));
@@ -353,8 +354,10 @@
 		color: color-mix(in oklch, var(--foreground) 90%, var(--primary));
 	}
 
-	:global(html.dark .role-option-btn[data-selected='true'],
-	html.dark .user-btn[data-selected='true']) {
+	:global(
+		html.dark .role-option-btn[data-selected='true'],
+		html.dark .user-btn[data-selected='true']
+	) {
 		background-color: color-mix(in oklch, var(--card) 72%, black 28%) !important;
 		border-color: color-mix(in oklch, var(--primary) 60%, var(--border)) !important;
 		color: color-mix(in oklch, var(--foreground) 94%, var(--primary));
@@ -373,7 +376,7 @@
 		border-color: color-mix(in oklch, var(--foreground) 58%, var(--accent)) !important;
 		color: color-mix(in oklch, var(--foreground) 100%, var(--accent)) !important;
 		box-shadow:
-			inset 0 0 0 1px color-mix(in oklch, var(--foreground) 42%, var(--accent)) !important,
+			inset 0 0 0 1px color-mix(in oklch, var(--foreground) 42%, var(--accent)),
 			0 0 0 1px color-mix(in oklch, var(--accent) 35%, transparent) !important;
 	}
 </style>

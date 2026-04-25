@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { Snippet } from 'svelte';
 	import { fade, fly } from 'svelte/transition';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
@@ -20,7 +21,9 @@
 		onChatGallery,
 		onCurrentChat,
 		onToggleTheme,
-		onSignOut
+		onSignOut,
+		mobileSidebarContent,
+		mobileRolesSidebarContent
 	}: {
 		authState: 'loading' | 'signed_out' | 'signed_in';
 		signedInMain: 'chat' | 'chats';
@@ -30,6 +33,8 @@
 		onCurrentChat: () => void;
 		onToggleTheme: () => void;
 		onSignOut: () => void;
+		mobileSidebarContent?: Snippet;
+		mobileRolesSidebarContent?: Snippet;
 	} = $props();
 
 	let headerHoverTip = $state<{ text: string; x: number; y: number } | null>(null);
@@ -77,37 +82,39 @@
 	<div class="flex min-w-0 items-start gap-2 md:items-center">
 		<div class="w-fit max-w-[20rem] min-w-0 shrink space-y-1">
 			<CardTitle class="text-2xl text-primary">Token Soup</CardTitle>
-			<CardDescription class="text-base break-words truncate"
+			<CardDescription class="truncate text-base break-words"
 				>{signedInMain === 'chats' ? 'Chats' : sessionSubtitle}</CardDescription
 			>
 		</div>
 		<div class="min-w-0 flex-1" aria-hidden="true"></div>
-		<Button
-			type="button"
-			variant="outline"
-			size="icon-sm"
-			class="header-control-btn shrink-0 md:hidden"
-			onclick={toggleMobileMenu}
-			aria-label={mobileMenuOpen ? 'Close menu' : 'Open menu'}
-			aria-haspopup="menu"
-			aria-expanded={mobileMenuOpen}
-			aria-controls="mobile-header-menu"
-		>
-			<Menu class="size-4" />
-		</Button>
-		<Button
-			type="button"
-			variant="outline"
-			size="icon-sm"
-			class="header-control-btn shrink-0 md:hidden"
-			onclick={toggleMobileRoles}
-			aria-label={mobileRolesOpen ? 'Close roles' : 'Open roles'}
-			aria-haspopup="menu"
-			aria-expanded={mobileRolesOpen}
-			aria-controls="mobile-roles-menu"
-		>
-			<Drama class="size-4" />
-		</Button>
+		<div class="shrink-0 md:hidden">
+			<Button
+				type="button"
+				variant="outline"
+				size="icon-sm"
+				class="header-control-btn"
+				onclick={toggleMobileRoles}
+				aria-label={mobileRolesOpen ? 'Close roles' : 'Open roles'}
+				aria-haspopup="menu"
+				aria-expanded={mobileRolesOpen}
+				aria-controls="mobile-roles-menu"
+			>
+				<Drama class="size-4" />
+			</Button>
+			<Button
+				type="button"
+				variant="outline"
+				size="icon-sm"
+				class="header-control-btn mt-2"
+				onclick={toggleMobileMenu}
+				aria-label={mobileMenuOpen ? 'Close menu' : 'Open menu'}
+				aria-haspopup="menu"
+				aria-expanded={mobileMenuOpen}
+				aria-controls="mobile-header-menu"
+			>
+				<Menu class="size-4" />
+			</Button>
+		</div>
 		<div class="hidden shrink-0 items-center gap-2 md:ml-auto md:flex">
 			<Button
 				type="button"
@@ -176,11 +183,19 @@
 		</div>
 	</div>
 	{#if mobileMenuOpen}
-		<div class="fixed inset-0 z-[190] bg-black/45 md:hidden" onclick={closeMobileMenu}></div>
-		<aside
+		<button
+			type="button"
+			class="fixed inset-0 z-[190] bg-black/45 md:hidden"
+			onclick={closeMobileMenu}
+			aria-label="Close menu"
+			tabindex="-1"
+		></button>
+		<div
 			id="mobile-header-menu"
-			class="fixed right-0 top-0 z-[200] flex h-screen w-[18rem] flex-col gap-3 border-l border-border bg-card p-3 shadow-card md:hidden"
-			role="menu"
+			class="fixed top-0 right-0 z-[200] flex h-screen w-[18rem] flex-col gap-3 border-l border-border bg-card p-3 shadow-card md:hidden"
+			role="dialog"
+			aria-modal="true"
+			aria-label="Menu"
 			transition:fly={{ x: 20, duration: 170 }}
 		>
 			<div class="flex items-center justify-between">
@@ -261,16 +276,24 @@
 				<Badge variant="secondary">…</Badge>
 			{/if}
 			<div class="min-h-0 flex-1 overflow-y-auto">
-				<slot name="mobile-sidebar-content" />
+				{@render mobileSidebarContent?.()}
 			</div>
-		</aside>
+		</div>
 	{/if}
 	{#if mobileRolesOpen}
-		<div class="fixed inset-0 z-[190] bg-black/45 md:hidden" onclick={closeMobileRoles}></div>
-		<aside
+		<button
+			type="button"
+			class="fixed inset-0 z-[190] bg-black/45 md:hidden"
+			onclick={closeMobileRoles}
+			aria-label="Close roles"
+			tabindex="-1"
+		></button>
+		<div
 			id="mobile-roles-menu"
-			class="fixed right-0 top-0 z-[200] flex h-screen w-[18rem] flex-col gap-3 border-l border-border bg-card p-3 shadow-card md:hidden"
-			role="menu"
+			class="fixed top-0 right-0 z-[200] flex h-screen w-[18rem] flex-col gap-3 border-l border-border bg-card p-3 shadow-card md:hidden"
+			role="dialog"
+			aria-modal="true"
+			aria-label="Roles"
 			transition:fly={{ x: 20, duration: 170 }}
 		>
 			<div class="flex items-center justify-between">
@@ -287,9 +310,9 @@
 				</Button>
 			</div>
 			<div class="min-h-0 flex-1 overflow-y-auto">
-				<slot name="mobile-roles-sidebar-content" />
+				{@render mobileRolesSidebarContent?.()}
 			</div>
-		</aside>
+		</div>
 	{/if}
 </CardHeader>
 
