@@ -1,17 +1,8 @@
 <script lang="ts">
 	import { onDestroy, onMount, tick } from 'svelte';
-	import {
-		postChat,
-		normalizeChatTitle,
-		type AIStreamEvent,
-		type ChatMessage
-	} from '$lib/chat';
-	import {
-		fetchRoles,
-		deleteRole,
-		type RoleRow
-	} from '$lib/roles';
-	import { fetchChats, fetchChat, type ChatSummaryRow } from '$lib/chats';
+	import { postChat, normalizeChatTitle, type AIStreamEvent, type ChatMessage } from '$lib/chat';
+	import type { ChatSummaryRow } from '$lib/chats';
+	import type { RoleRow } from '$lib/roles';
 	import {
 		appendAssistantMessage,
 		appendUserMessage,
@@ -19,16 +10,11 @@
 		applyReasoningDelta,
 		applyReplacement
 	} from '$lib/chat-message-state';
-	import {
-		activeAssistantName,
-		chooseSelectedRoleId,
-		getStoredSelectedRoleId,
-		persistSelectedRoleId
-	} from '$lib/role-selection';
-	import { loadFirstPage, loadNextPage } from '$lib/pagination';
 	import { USER_MESSAGE_MAX_CHARS } from '$lib/limits';
 	import { getDisplayName } from '$lib/session';
 	import { getSupabase } from '$lib/supabase';
+	import { RolesController } from '$lib/roles-controller.svelte';
+	import { ChatsController } from '$lib/chats-controller.svelte';
 	import type { Session } from '@supabase/supabase-js';
 	import { Card, CardContent } from '$lib/components/ui/card';
 	import { toggleTheme as applyToggleTheme } from '$lib/theme';
@@ -62,57 +48,53 @@
 	let persistEphemeral = $state(false);
 	/** Signed-in main panel: chat or gallery (`chats`). */
 	let signedInMain = $state<'chat' | 'chats'>('chat');
-	let roleRows = $state<RoleRow[]>([]);
-	let rolesLoadError = $state('');
-	let rolesLoading = $state(false);
-	let deletingRoleId = $state<number | null>(null);
-	/** Persisted AI persona (`public.roles`); drives system prompt and assistant label. */
-	let selectedRoleId = $state<number | null>(null);
-	/** When true the user is typing; when false the selected AI role will generate next. */
-	let userTurn = $state(false);
 	let rolesPanelRef = $state<RolesPanel | null>(null);
 
-	let chatRows = $state<ChatSummaryRow[]>([]);
-	let chatsLoadError = $state('');
-	let chatsLoading = $state(false);
-	let chatsLoadingMore = $state(false);
-	let chatsHasMore = $state(true);
-
 	const LIST_BATCH_SIZE = 10;
+	const HAD_SESSION_STORAGE_KEY = 'token-soup:hadSession';
 
 	const supabase = getSupabase();
+
+	function markSessionSeen() {
+		try {
+			localStorage.setItem(HAD_SESSION_STORAGE_KEY, '1');
+		} catch {
+			/* ignore storage failures */
+		}
+	}
+
+	function hasSeenSession(): boolean {
+		try {
+			return localStorage.getItem(HAD_SESSION_STORAGE_KEY) === '1';
+		} catch {
+			return false;
+		}
+	}
+
+	function rolesErrorMessage(err: unknown): string {
+		const message = err instanceof Error ? err.message : String(err);
+		if (message.trim().toLowerCase() === 'unauthorized' && hasSeenSession()) {
+			return 'Session expired. Please sign in again.';
+		}
+		return message;
+	}
+
+	const roles = new RolesController({
+		getAccessToken: () => session?.access_token,
+		getUserId: () => session?.user?.id,
+		pageSize: LIST_BATCH_SIZE,
+		getStorage: () => localStorage,
+		mapError: rolesErrorMessage
+	});
+
+	const chats = new ChatsController({
+		getAccessToken: () => session?.access_token,
+		pageSize: LIST_BATCH_SIZE
+	});
 
 	function toggleReasoningExpanded(i: number) {
 		const next = !reasoningExpandedByIndex[i];
 		reasoningExpandedByIndex = { ...reasoningExpandedByIndex, [i]: next };
-	}
-
-	function currentAssistantName(): string {
-		return activeAssistantName(roleRows, selectedRoleId);
-	}
-
-	function syncSelectedRoleAfterLoad() {
-		const u = session?.user;
-		if (!u?.id) return;
-		const rawStoredId = getStoredSelectedRoleId(localStorage, u.id);
-		const picked = chooseSelectedRoleId(roleRows, rawStoredId);
-		selectedRoleId = picked;
-		if (picked != null) {
-			persistSelectedRoleId(localStorage, u.id, picked);
-		}
-	}
-
-	function selectRoleAsCurrent(r: RoleRow) {
-		selectedRoleId = r.id;
-		userTurn = false;
-		const uid = session?.user?.id;
-		if (uid) {
-			persistSelectedRoleId(localStorage, uid, r.id);
-		}
-	}
-
-	function selectUserTurn() {
-		userTurn = true;
 	}
 
 	async function requestCompletion() {
@@ -153,7 +135,7 @@
 				chatId,
 				persistEphemeral,
 				onStreamEvent,
-				selectedRoleId,
+				roles.selectedId,
 				true
 			);
 		} catch (err) {
@@ -174,7 +156,7 @@
 	}
 
 	function handleDoubleClickRole(r: RoleRow) {
-		selectRoleAsCurrent(r);
+		roles.selectRole(r);
 		void requestCompletion();
 	}
 
@@ -187,7 +169,7 @@
 	}
 
 	function pushAssistantBubble(text: string, senderModel?: string) {
-		const next = appendAssistantMessage(messages, currentAssistantName(), text, senderModel);
+		const next = appendAssistantMessage(messages, roles.assistantName, text, senderModel);
 		messages = next.messages;
 		scheduleScroll();
 		return next.index;
@@ -227,13 +209,7 @@
 					awaitingAi = true;
 					activeAiJobId = jobId;
 				}
-				messages = applyReasoningDelta(
-					messages,
-					idx,
-					currentAssistantName(),
-					deltaText,
-					parsed.name
-				);
+				messages = applyReasoningDelta(messages, idx, roles.assistantName, deltaText, parsed.name);
 				scheduleScroll();
 				return;
 			}
@@ -253,7 +229,7 @@
 				if (answerStarted) {
 					reasoningExpandedByIndex = { ...reasoningExpandedByIndex, [idx]: false };
 				}
-				messages = applyAnswerDelta(messages, idx, currentAssistantName(), deltaText, parsed.name);
+				messages = applyAnswerDelta(messages, idx, roles.assistantName, deltaText, parsed.name);
 				scheduleScroll();
 				return;
 			}
@@ -269,13 +245,7 @@
 					aiBubbleIndexByJobId[jobId] = newIdx;
 					return;
 				}
-				messages = applyReplacement(
-					messages,
-					idx,
-					currentAssistantName(),
-					replacement,
-					parsed.name
-				);
+				messages = applyReplacement(messages, idx, roles.assistantName, replacement, parsed.name);
 				scheduleScroll();
 				return;
 			}
@@ -302,16 +272,9 @@
 		persistWarning = '';
 		persistEphemeral = false;
 		signedInMain = 'chat';
-		roleRows = [];
-		rolesLoadError = '';
-		rolesHasMore = true;
-		rolesLoadingMore = false;
-		selectedRoleId = null;
+		roles.reset();
 		rolesPanelRef?.closeEditor();
-		chatRows = [];
-		chatsLoadError = '';
-		chatsHasMore = true;
-		chatsLoadingMore = false;
+		chats.reset();
 	}
 
 	onMount(() => {
@@ -319,7 +282,7 @@
 			session = s;
 			authState = s ? 'signed_in' : 'signed_out';
 			if (s) markSessionSeen();
-			if (s?.access_token) void loadRoleRows();
+			if (s?.access_token) void roles.load();
 		});
 
 		const {
@@ -329,12 +292,9 @@
 			authState = s ? 'signed_in' : 'signed_out';
 			if (s?.access_token) {
 				markSessionSeen();
-				void loadRoleRows();
+				void roles.load();
 			} else {
-				selectedRoleId = null;
-				roleRows = [];
-				rolesHasMore = true;
-				rolesLoadingMore = false;
+				roles.reset();
 			}
 		});
 
@@ -387,7 +347,7 @@
 				chatId,
 				persistEphemeral,
 				onStreamEvent,
-				selectedRoleId,
+				roles.selectedId,
 				false,
 				true
 			);
@@ -420,43 +380,10 @@
 		signedInMain = 'chat';
 	}
 
-	async function loadChatRows() {
-		const accessToken = session?.access_token;
-		if (!accessToken) return;
-		chatsLoading = true;
-		chatsLoadError = '';
-		try {
-			const page = await loadFirstPage((params) => fetchChats(accessToken, params), LIST_BATCH_SIZE);
-			chatRows = page.rows;
-			chatsHasMore = page.hasMore;
-		} catch (e) {
-			chatRows = [];
-			chatsHasMore = true;
-			chatsLoadError = e instanceof Error ? e.message : String(e);
-		} finally {
-			chatsLoading = false;
-		}
-	}
-
-	async function loadMoreChats() {
-		const accessToken = session?.access_token;
-		if (!accessToken || chatsLoading || chatsLoadingMore || !chatsHasMore) return;
-		chatsLoadingMore = true;
-		try {
-			const page = await loadNextPage((params) => fetchChats(accessToken, params), LIST_BATCH_SIZE, chatRows);
-			chatRows = page.rows;
-			chatsHasMore = page.hasMore;
-		} catch (e) {
-			chatsLoadError = e instanceof Error ? e.message : String(e);
-		} finally {
-			chatsLoadingMore = false;
-		}
-	}
-
 	function handleChatGallery() {
 		rolesPanelRef?.closeEditor();
 		signedInMain = 'chats';
-		void loadChatRows();
+		void chats.load();
 	}
 
 	async function openChatFromList(c: ChatSummaryRow) {
@@ -471,17 +398,14 @@
 		messageInput = '';
 		persistWarning = '';
 		persistEphemeral = false;
-		chatsLoadError = '';
-		try {
-			const detail = await fetchChat(session.access_token, c.id);
-			chatId = detail.id;
-			sessionSubtitle = detail.title.trim() || defaultSessionSubtitle;
-			messages = detail.messages;
-			signedInMain = 'chat';
-			scheduleScroll();
-		} catch (e) {
-			chatsLoadError = e instanceof Error ? e.message : String(e);
-		}
+		chats.clearError();
+		const detail = await chats.fetchDetail(c.id);
+		if (!detail) return;
+		chatId = detail.id;
+		sessionSubtitle = detail.title.trim() || defaultSessionSubtitle;
+		messages = detail.messages;
+		signedInMain = 'chat';
+		scheduleScroll();
 	}
 
 	function handleNewChat() {
@@ -501,84 +425,10 @@
 		signedInMain = 'chat';
 	}
 
-	async function loadRoleRows() {
-		const accessToken = session?.access_token;
-		if (!accessToken) return;
-		rolesLoading = true;
-		rolesLoadError = '';
-		try {
-			const page = await loadFirstPage((params) => fetchRoles(accessToken, params), LIST_BATCH_SIZE);
-			roleRows = page.rows;
-			rolesHasMore = page.hasMore;
-		} catch (e) {
-			roleRows = [];
-			rolesHasMore = true;
-			rolesLoadError = rolesErrorMessage(e);
-		} finally {
-			rolesLoading = false;
-		}
-		syncSelectedRoleAfterLoad();
-	}
-
-	let rolesLoadingMore = $state(false);
-	let rolesHasMore = $state(true);
-	const HAD_SESSION_STORAGE_KEY = 'token-soup:hadSession';
-
-	function markSessionSeen() {
-		try {
-			localStorage.setItem(HAD_SESSION_STORAGE_KEY, '1');
-		} catch {
-			/* ignore storage failures */
-		}
-	}
-
-	function hasSeenSession(): boolean {
-		try {
-			return localStorage.getItem(HAD_SESSION_STORAGE_KEY) === '1';
-		} catch {
-			return false;
-		}
-	}
-
-	function rolesErrorMessage(err: unknown): string {
-		const message = err instanceof Error ? err.message : String(err);
-		if (message.trim().toLowerCase() === 'unauthorized' && hasSeenSession()) {
-			return 'Session expired. Please sign in again.';
-		}
-		return message;
-	}
-
-	async function loadMoreRoles() {
-		const accessToken = session?.access_token;
-		if (!accessToken || rolesLoading || rolesLoadingMore || !rolesHasMore) return;
-		rolesLoadingMore = true;
-		rolesLoadError = '';
-		try {
-			const page = await loadNextPage((params) => fetchRoles(accessToken, params), LIST_BATCH_SIZE, roleRows);
-			roleRows = page.rows;
-			rolesHasMore = page.hasMore;
-			rolesLoadError = '';
-		} catch (e) {
-			rolesLoadError = rolesErrorMessage(e);
-		} finally {
-			rolesLoadingMore = false;
-		}
-	}
-
-	async function deleteRoleRow(r: RoleRow, e: MouseEvent) {
+	function handleDeleteRole(r: RoleRow, e: MouseEvent) {
 		e.preventDefault();
 		e.stopPropagation();
-		if (!session?.access_token || deletingRoleId != null) return;
-		deletingRoleId = r.id;
-		rolesLoadError = '';
-		try {
-			await deleteRole(session.access_token, r.id);
-			await loadRoleRows();
-		} catch (err) {
-			rolesLoadError = rolesErrorMessage(err);
-		} finally {
-			deletingRoleId = null;
-		}
+		void roles.deleteRow(r);
 	}
 
 	onDestroy(() => {
@@ -602,22 +452,22 @@
 				{#if authState === 'signed_in'}
 					<div class="mt-1 min-h-0 rounded-md border border-border/70 bg-field/45 p-2 md:hidden">
 						<RolesPanel
-							{roleRows}
-							{rolesLoading}
-							{rolesLoadError}
-							{rolesLoadingMore}
-							{rolesHasMore}
-							{selectedRoleId}
-							{deletingRoleId}
-							{userTurn}
+							roleRows={roles.rows}
+							rolesLoading={roles.loading}
+							rolesLoadError={roles.loadError}
+							rolesLoadingMore={roles.loadingMore}
+							rolesHasMore={roles.hasMore}
+							selectedRoleId={roles.selectedId}
+							deletingRoleId={roles.deletingId}
+							userTurn={roles.userTurn}
 							displayName={getDisplayName(session)}
 							accessToken={session?.access_token ?? ''}
-							onSelectRole={selectRoleAsCurrent}
-							onSelectUser={selectUserTurn}
+							onSelectRole={(r) => roles.selectRole(r)}
+							onSelectUser={() => roles.selectUser()}
 							onDoubleClickRole={handleDoubleClickRole}
-							onRolesChanged={loadRoleRows}
-							onDeleteRole={deleteRoleRow}
-							onLoadMore={() => void loadMoreRoles()}
+							onRolesChanged={() => roles.load()}
+							onDeleteRole={handleDeleteRole}
+							onLoadMore={() => void roles.loadMore()}
 						/>
 					</div>
 				{/if}
@@ -642,15 +492,15 @@
 						{#if signedInMain === 'chats'}
 							<div class="flex min-h-0 flex-1 flex-col">
 								<ChatsGallery
-									{chatRows}
-									{chatsLoading}
-									{chatsLoadingMore}
-									{chatsLoadError}
-									{chatsHasMore}
+									chatRows={chats.rows}
+									chatsLoading={chats.loading}
+									chatsLoadingMore={chats.loadingMore}
+									chatsLoadError={chats.loadError}
+									chatsHasMore={chats.hasMore}
 									activeChatId={chatId}
 									onNewChat={handleNewChat}
 									onOpenChat={(c) => void openChatFromList(c)}
-									onLoadMore={() => void loadMoreChats()}
+									onLoadMore={() => void chats.loadMore()}
 								/>
 							</div>
 						{:else}
@@ -658,7 +508,7 @@
 								<ChatPanel
 									{messages}
 									{awaitingAi}
-									pendingAssistantName={currentAssistantName()}
+									pendingAssistantName={roles.assistantName}
 									bind:messageInput
 									bind:logContainer
 									activeStreamingIndex={activeAiJobId !== ''
@@ -668,7 +518,7 @@
 									onToggleReasoning={toggleReasoningExpanded}
 									onSend={sendMessage}
 									onStop={stopMessage}
-									aiMode={!userTurn}
+									aiMode={!roles.userTurn}
 									onRequestCompletion={requestCompletion}
 								/>
 							</div>
@@ -680,22 +530,22 @@
 					>
 						<RolesPanel
 							bind:this={rolesPanelRef}
-							{roleRows}
-							{rolesLoading}
-							{rolesLoadError}
-							{rolesLoadingMore}
-							{rolesHasMore}
-							{selectedRoleId}
-							{deletingRoleId}
-							{userTurn}
+							roleRows={roles.rows}
+							rolesLoading={roles.loading}
+							rolesLoadError={roles.loadError}
+							rolesLoadingMore={roles.loadingMore}
+							rolesHasMore={roles.hasMore}
+							selectedRoleId={roles.selectedId}
+							deletingRoleId={roles.deletingId}
+							userTurn={roles.userTurn}
 							displayName={getDisplayName(session)}
 							accessToken={session?.access_token ?? ''}
-							onSelectRole={selectRoleAsCurrent}
-							onSelectUser={selectUserTurn}
+							onSelectRole={(r) => roles.selectRole(r)}
+							onSelectUser={() => roles.selectUser()}
 							onDoubleClickRole={handleDoubleClickRole}
-							onRolesChanged={loadRoleRows}
-							onDeleteRole={deleteRoleRow}
-							onLoadMore={() => void loadMoreRoles()}
+							onRolesChanged={() => roles.load()}
+							onDeleteRole={handleDeleteRole}
+							onLoadMore={() => void roles.loadMore()}
 						/>
 					</aside>
 				</div>
