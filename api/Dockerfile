@@ -18,17 +18,13 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" \
         -o /out/token-soup ./cmd/token-soup
 
-FROM alpine:3.20
+FROM scratch
 
-RUN apk add --no-cache ca-certificates tzdata \
-    && addgroup -S app && adduser -S -G app app
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+COPY --from=builder /out/token-soup /token-soup
 
-WORKDIR /app
-
-COPY --from=builder /out/token-soup /app/token-soup
-
-USER app
+USER 65532:65532
 
 EXPOSE 8080
 
-ENTRYPOINT ["/app/token-soup"]
+ENTRYPOINT ["/token-soup"]

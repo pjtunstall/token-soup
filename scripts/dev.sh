@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-COMPOSE_FILE="$ROOT_DIR/docker-compose.yml"
+COMPOSE_FILE="$ROOT_DIR/docker-compose.yaml"
 API_HOST="127.0.0.1"
 API_PORT="8080"
 API_READY_TIMEOUT_SECS="${API_READY_TIMEOUT_SECS:-60}"
