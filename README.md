@@ -51,9 +51,9 @@ cd token-soup
 
 ### Install local tools
 
-- **Docker** (with Compose) — `scripts/dev.sh` runs the Go API in a container on port 8080.
-- **Node.js** and **npm** — for the SvelteKit dev server in `web/`.
-- **`psql`** — the PostgreSQL client, to apply `supabase/schema.sql` (e.g. `sudo apt install postgresql-client`).
+- **Docker** (with Compose): `scripts/dev.sh` runs the Go API in a container on port 8080.
+- **Node.js** and **npm** for the SvelteKit dev server in `web/`.
+- **`psql`**, the Postgres client, to apply `supabase/schema.sql` (e.g. `sudo apt install postgresql-client`).
 
 ### Supabase and OpenRouter
 
@@ -63,10 +63,10 @@ From the Supabase dashboard:
 
 | What | Where it goes |
 | --- | --- |
-| Project URL | `web/.env` → `PUBLIC_SUPABASE_URL` |
-| Publishable (anon) key | `web/.env` → `PUBLIC_SUPABASE_PUBLISHABLE_KEY` |
-| JWKS URL `https://<project-ref>.supabase.co/auth/v1/.well-known/jwks.json` | `api/.env` → `SUPABASE_JWKS_URL` |
-| Session-pooler connection string | `api/.env` → `DATABASE_URL` |
+| Project URL | `web/.env` -> `PUBLIC_SUPABASE_URL` |
+| Publishable (anon) key | `web/.env` -> `PUBLIC_SUPABASE_PUBLISHABLE_KEY` |
+| JWKS URL `https://<project-ref>.supabase.co/auth/v1/.well-known/jwks.json` | `api/.env` -> `SUPABASE_JWKS_URL` |
+| Session-pooler connection string | `api/.env` -> `DATABASE_URL` |
 
 Create a **user** in Authentication (or enable email sign-in). Add your OpenRouter key to `api/.env` as `OPENROUTER_API_KEY`.
 
@@ -99,7 +99,7 @@ Or run `./scripts/apply-schema.sh` directly. Both use **`psql`** to apply `supab
 
 Run this once for first-time setup, and again whenever you want a clean database.
 
-The root `package.json` lists the Supabase CLI as a devDependency (so `npm install` at the root would download it), but nothing in this repo calls it — schema apply uses `psql` directly. That dependency looks like a leftover and may be removed later.
+The root `package.json` lists the Supabase CLI as a devDependency (so `npm install` at the root would download it), but nothing in this repo calls it--schema apply uses `psql` directly. That dependency looks like a leftover and may be removed later.
 
 Note: The Go API still has vestigial logic to stream chats in memory when `DATABASE_URL` is unset (from early development before Supabase), but the app requires Supabase for auth and the database for roles and chat history, so that path is not usable in practice.
 
