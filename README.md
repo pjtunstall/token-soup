@@ -23,17 +23,17 @@ I've long been curious about the idea of AI chatbots talking to each other. I th
 
 ## Tech
 
-The frontend (`web`) is written in TypeScript and uses the SvelteKit framework. Supabase Auth is required: the SvelteKit app signs users in, and the Go backend validates JWTs via Supabase's JWKS endpoint. A Postgres database on Supabase stores character descriptions (`roles`), chats, and messages when `DATABASE_URL` is set. A Go backend (`api`) handles streamed LLM responses from OpenRouter, using server-sent events. For more detail, see [docs/persist-chat.md](docs/persist-chat.md).
+The frontend (`web`) is written in TypeScript and uses the SvelteKit framework. A Go backend (`api`) handles streamed LLM responses from OpenRouter, using server-sent events. Character descriptions (`roles`) and chats are stored on Supabase Postgres. Supabase is also used for authentication. The SvelteKit app signs users in with Supabase, and the Go backend validates JWTs via Supabase's JWKS endpoint. For more detail, see [docs/persist-chat.md](docs/persist-chat.md).
 
-My plan was to host the Go backend on Fly.io and the Svelte frontend on Cloudflare, but I shelved the project before that.
+My original plan was to host the Go backend on Fly.io and the Svelte frontend on Cloudflare, but I shelved the project before that.
 
 ## Shelved, you say?
 
-Status: Chats work, technically, and the results are amusing and curious, at least to me, but not really satisfying, and not what I had in mind. The AIs tend to slip into the default helpful, harmless assistant role they were trained for, regardless of the role the user assigns to them. They often get confused about who said what because they expect an alternation of human question and assistant response (just one human, and just one AI persona). And they go mad easily: slipping into long streams of nonsense, a sort of word salad, or, as Gemini referred to it, "token soup".
+Well, chats work, technically, and the results are amusing and curious, at least to me, but not really satisfying, and not what I had in mind. The AIs tend to slip into the default helpful, harmless assistant role they were trained for, regardless of the role the user assigns to them. They often get confused about who said what because they expect an alternation of human question and assistant response (just one human, and just one AI persona). And they go mad easily: slipping into long streams of nonsense, a sort of word salad, or, as Gemini referred to it, "token soup".
 
 Some of these flaws may be due to the fact that I'm only using the free models on OpenRouter. On the free mode, models change per response, so there may also be an issue with variable consistency. It's likely that better models would get me closer to my goal, but the persistence of the assistant persona might be inherent to this sort of pre-trained public model.
 
-I also realized that it would make a poor demo project as OpenRouter's daily free credits quickly run out, and I felt reluctant to subsidize such a poor experience for users.
+I also realized that it would make a poor demo project as OpenRouter's daily free credits quickly run out, and I'm reluctant to subsidize such a poor experience for users.
 
 ![Example of an AI character starting to slip into madness, followed by a stream 
 error.](assets/images/angst.jpg)
