@@ -3,6 +3,6 @@
     "db:apply-schema": "bash scripts/apply-schema.sh"
   },
   "devDependencies": {
-    "supabase": "^2.84.10"
+    "supabase": "^2.109.0"
   }
 }
