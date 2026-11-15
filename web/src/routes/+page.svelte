@@ -9,11 +9,13 @@
 		reduceStreamEvent
 	} from '$lib/chat-message-state';
 	import { USER_MESSAGE_MAX_CHARS } from '$lib/limits';
+	import { isLocalAuth } from '$lib/auth-mode';
+	import { createLocalSession } from '$lib/local-session';
 	import { getDisplayName, markSessionSeen, rolesErrorMessage } from '$lib/session';
 	import { getSupabase } from '$lib/supabase';
 	import { RolesController } from '$lib/roles-controller.svelte';
 	import { ChatsController } from '$lib/chats-controller.svelte';
-	import type { Session } from '@supabase/supabase-js';
+	import type { Session, SupabaseClient } from '@supabase/supabase-js';
 	import { Card, CardContent } from '$lib/components/ui/card';
 	import { toggleTheme as applyToggleTheme } from '$lib/theme';
 	import AuthForm from './AuthForm.svelte';
@@ -21,6 +23,8 @@
 	import AppHeader from './AppHeader.svelte';
 	import ChatPanel from './ChatPanel.svelte';
 	import RolesPanel from './RolesPanel.svelte';
+
+	const localAuth = isLocalAuth();
 
 	let authState = $state<'loading' | 'signed_out' | 'signed_in'>('loading');
 	let session = $state<Session | null>(null);
@@ -50,7 +54,7 @@
 
 	const LIST_BATCH_SIZE = 10;
 
-	const supabase = getSupabase();
+	const supabase: SupabaseClient | null = localAuth ? null : getSupabase();
 
 	const roles = new RolesController({
 		getAccessToken: () => session?.access_token,
@@ -193,8 +197,7 @@
 		return null;
 	}
 
-	async function signOut() {
-		await supabase.auth.signOut();
+	function clearSignedInUi() {
 		messages = [];
 		aiBubbleIndexByJobId = {};
 		reasoningExpandedByIndex = {};
@@ -208,8 +211,29 @@
 		chats.reset();
 	}
 
+	async function signOut() {
+		clearSignedInUi();
+		if (localAuth) {
+			// Stay signed in as the fixed local user; only clear chat/roles UI state.
+			session = createLocalSession();
+			authState = 'signed_in';
+			markSessionSeen(localStorage);
+			void roles.load();
+			return;
+		}
+		await supabase!.auth.signOut();
+	}
+
 	onMount(() => {
-		void supabase.auth.getSession().then(({ data: { session: s } }) => {
+		if (localAuth) {
+			session = createLocalSession();
+			authState = 'signed_in';
+			markSessionSeen(localStorage);
+			void roles.load();
+			return;
+		}
+
+		void supabase!.auth.getSession().then(({ data: { session: s } }) => {
 			session = s;
 			authState = s ? 'signed_in' : 'signed_out';
 			if (s) markSessionSeen(localStorage);
@@ -218,7 +242,7 @@
 
 		const {
 			data: { subscription }
-		} = supabase.auth.onAuthStateChange((_event, s) => {
+		} = supabase!.auth.onAuthStateChange((_event, s) => {
 			session = s;
 			authState = s ? 'signed_in' : 'signed_out';
 			if (s?.access_token) {
@@ -398,8 +422,10 @@
 			{/if}
 			{#if authState === 'loading'}
 				<p class="text-sm text-muted-foreground">Loading…</p>
-			{:else if authState === 'signed_out'}
+			{:else if authState === 'signed_out' && supabase}
 				<AuthForm {supabase} />
+			{:else if authState === 'signed_out'}
+				<p class="text-sm text-muted-foreground">Local auth is not signed in.</p>
 			{:else}
 				<div class="flex min-h-0 flex-1 flex-col gap-3 md:flex-row">
 					<div class="flex min-h-0 min-w-0 flex-1 flex-col">

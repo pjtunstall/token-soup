@@ -8,7 +8,6 @@ import (
 	"strconv"
 
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/lestrrat-go/jwx/v2/jwk"
 )
 
 type chatMessageJSON struct {
@@ -58,8 +57,8 @@ func chatsDBError(w http.ResponseWriter, err error, operation, fallback string) 
 	http.Error(w, fallback, http.StatusInternalServerError)
 }
 
-func chatsRequire(persist *Persist, cache *jwk.Cache, jwksURL string, w http.ResponseWriter, r *http.Request) (userID string, ok bool) {
-	uid, err := AuthUserID(r.Context(), cache, jwksURL, r.Header.Get("Authorization"))
+func chatsRequire(persist *Persist, auth *Authenticator, w http.ResponseWriter, r *http.Request) (userID string, ok bool) {
+	uid, err := auth.UserID(r.Context(), r.Header.Get("Authorization"))
 	if err != nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return "", false
@@ -94,9 +93,9 @@ func parseListPageParams(r *http.Request) (limit int, offset int, ok bool) {
 }
 
 // ChatsCollectionHandler: GET /api/chats (list)
-func ChatsCollectionHandler(persist *Persist, cache *jwk.Cache, jwksURL string) http.HandlerFunc {
+func ChatsCollectionHandler(persist *Persist, auth *Authenticator) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		userID, ok := chatsRequire(persist, cache, jwksURL, w, r)
+		userID, ok := chatsRequire(persist, auth, w, r)
 		if !ok {
 			return
 		}
@@ -126,9 +125,9 @@ func ChatsCollectionHandler(persist *Persist, cache *jwk.Cache, jwksURL string) 
 }
 
 // ChatsItemHandler: GET /api/chats/{id} (messages)
-func ChatsItemHandler(persist *Persist, cache *jwk.Cache, jwksURL string) http.HandlerFunc {
+func ChatsItemHandler(persist *Persist, auth *Authenticator) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		userID, ok := chatsRequire(persist, cache, jwksURL, w, r)
+		userID, ok := chatsRequire(persist, auth, w, r)
 		if !ok {
 			return
 		}

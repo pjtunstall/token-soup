@@ -25,7 +25,7 @@ export class RolesController {
 	/** Persisted AI persona (`public.roles`); drives system prompt and assistant label. */
 	selectedId = $state<number | null>(null);
 	/** When true the user is typing; when false the selected AI role will generate next. */
-	userTurn = $state(false);
+	userTurn = $state(true);
 
 	private readonly opts: RolesControllerOptions;
 
@@ -113,7 +113,7 @@ export class RolesController {
 		this.hasMore = true;
 		this.loadingMore = false;
 		this.selectedId = null;
-		this.userTurn = false;
+		this.userTurn = true;
 	}
 
 	private syncSelectedAfterLoad(): void {

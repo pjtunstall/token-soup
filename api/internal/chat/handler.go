@@ -11,8 +11,6 @@ import (
 	"sync/atomic"
 	"unicode/utf8"
 
-	"github.com/lestrrat-go/jwx/v2/jwk"
-
 	"token-soup/internal/openrouter"
 )
 
@@ -48,11 +46,11 @@ func turnsFromMessages(msgs []Message) []openrouter.HistoryTurn {
 	return turns
 }
 
-// ChatHandler handles POST /api/chat with SSE response and Supabase JWT auth.
+// ChatHandler handles POST /api/chat with SSE response and mode-based auth.
 // If persist is non-nil, chats and messages are stored; otherwise the in-memory HistoryStore is used (legacy).
-func ChatHandler(store *HistoryStore, persist *Persist, cache *jwk.Cache, jwksURL string) http.HandlerFunc {
+func ChatHandler(store *HistoryStore, persist *Persist, auth *Authenticator) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		userID, err := AuthUserID(r.Context(), cache, jwksURL, r.Header.Get("Authorization"))
+		userID, err := auth.UserID(r.Context(), r.Header.Get("Authorization"))
 		if err != nil {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return

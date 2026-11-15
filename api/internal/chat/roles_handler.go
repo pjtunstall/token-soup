@@ -11,7 +11,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/lestrrat-go/jwx/v2/jwk"
 )
 
 type rolePostBody struct {
@@ -62,8 +61,8 @@ func rolesDBError(w http.ResponseWriter, err error, operation, fallback string) 
 	http.Error(w, fallback, http.StatusInternalServerError)
 }
 
-func rolesRequire(persist *Persist, cache *jwk.Cache, jwksURL string, w http.ResponseWriter, r *http.Request) (userID string, ok bool) {
-	uid, err := AuthUserID(r.Context(), cache, jwksURL, r.Header.Get("Authorization"))
+func rolesRequire(persist *Persist, auth *Authenticator, w http.ResponseWriter, r *http.Request) (userID string, ok bool) {
+	uid, err := auth.UserID(r.Context(), r.Header.Get("Authorization"))
 	if err != nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return "", false
@@ -76,9 +75,9 @@ func rolesRequire(persist *Persist, cache *jwk.Cache, jwksURL string, w http.Res
 }
 
 // RolesCollectionHandler: GET (list), POST (create) /api/roles
-func RolesCollectionHandler(persist *Persist, cache *jwk.Cache, jwksURL string) http.HandlerFunc {
+func RolesCollectionHandler(persist *Persist, auth *Authenticator) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		userID, ok := rolesRequire(persist, cache, jwksURL, w, r)
+		userID, ok := rolesRequire(persist, auth, w, r)
 		if !ok {
 			return
 		}
@@ -145,9 +144,9 @@ func RolesCollectionHandler(persist *Persist, cache *jwk.Cache, jwksURL string) 
 }
 
 // RolesItemHandler: PATCH, DELETE /api/roles/{id}
-func RolesItemHandler(persist *Persist, cache *jwk.Cache, jwksURL string) http.HandlerFunc {
+func RolesItemHandler(persist *Persist, auth *Authenticator) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		userID, ok := rolesRequire(persist, cache, jwksURL, w, r)
+		userID, ok := rolesRequire(persist, auth, w, r)
 		if !ok {
 			return
 		}

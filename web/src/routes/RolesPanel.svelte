@@ -151,6 +151,8 @@
 	});
 </script>
 
+<p class="mb-2 shrink-0 px-0.5 text-sm text-muted-foreground">Pick who speaks next...</p>
+
 <button
 	type="button"
 	class="menu-action-btn user-btn h-8 w-full truncate rounded-md border px-2 text-left text-sm transition-colors {userTurn

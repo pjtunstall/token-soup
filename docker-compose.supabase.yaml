@@ -1,0 +1,14 @@
+# Cloud Supabase Auth + remote DATABASE_URL (no local Postgres).
+# Usage: docker compose -f docker-compose.supabase.yaml up --build
+services:
+  api:
+    build:
+      context: ./api
+    image: token-soup-api:dev
+    container_name: token-soup-api
+    ports:
+      - "8080:8080"
+    command: ["-mode", "supabase", "-addr", ":8080"]
+    env_file:
+      - ./api/.env
+    restart: unless-stopped

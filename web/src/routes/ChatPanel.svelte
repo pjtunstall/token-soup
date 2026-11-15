@@ -32,7 +32,10 @@
 		onRequestCompletion: () => void;
 	} = $props();
 
-	const showPendingPlaceholder = $derived(awaitingAi && activeStreamingIndex === undefined);
+	// Only in AI mode: user message sends are message-only and must not flash a role placeholder.
+	const showPendingPlaceholder = $derived(
+		aiMode && awaitingAi && activeStreamingIndex === undefined
+	);
 	const pendingPlaceholderMessage = $derived<ChatMessage>({
 		sender_type: 'bot',
 		sender_name: pendingAssistantName,

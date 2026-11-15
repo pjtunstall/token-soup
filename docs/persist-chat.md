@@ -18,9 +18,14 @@
 
 ## Overview
 
-The Go API can optionally persist chats and messages to Postgres when `DATABASE_URL` is set at startup. The browser still talks to Supabase only for **auth**; it talks to the Go API for chat. Persistence is **best-effort**: the API prefers clear outcomes (stream + warnings, or HTTP errors before streaming) over silent divergence.
+The Go API persists chats and messages to Postgres when `DATABASE_URL` is set at startup. Auth depends on `-mode`:
 
-OpenRouter **turns** are built from an in-process **`HistoryStore`**, keyed by user and (when applicable) chat id. The database is the **durability** layer for messages, not the source of truth for model context during a normal request (reload-from-DB for cold starts is a future concern).
+- **`local` (default):** Accepts Bearer `local-dev` and maps it to a fixed user UUID. Compose always supplies `DATABASE_URL` to a throwaway Postgres (schema applied on container init). The web app uses `PUBLIC_AUTH_MODE=local` and skips Supabase Auth.
+- **`supabase`:** Validates JWTs via `SUPABASE_JWKS_URL`. The browser uses Supabase Auth only for sign-in; chat/roles/chats still go through the Go API. Persistence is optional if `DATABASE_URL` is unset (in-memory only).
+
+Persistence is **best-effort**: the API prefers clear outcomes (stream + warnings, or HTTP errors before streaming) over silent divergence.
+
+OpenRouter **turns** are built from an in-process **`HistoryStore`**, keyed by user and (when applicable) chat id. The database is the **durability** layer for messages, not the source of truth for model context during a normal request (reload-from-DB for cold starts is a future concern). Local Compose data is discarded on `docker compose down -v` (what `make run` / `scripts/dev.sh` do on exit).
 
 ---
 
@@ -28,15 +33,15 @@ OpenRouter **turns** are built from an in-process **`HistoryStore`**, keyed by u
 
 ### Behavior
 
-1. User signs in; the web app holds a Supabase **JWT** and calls **`POST /api/chat`** with `Authorization: Bearer …`, JSON `message`, `senderName`, and optionally `chatId` / `ephemeral` (see sad path).
+1. User is authenticated (Supabase JWT in supabase mode, or Bearer `local-dev` in local mode). The web app calls **`POST /api/chat`** with `Authorization: Bearer …`, JSON `message`, `senderName`, and optionally `chatId` / `ephemeral` (see sad path).
 2. **First message** of a persisted thread (no `chatId` yet, not in ephemeral mode): the server creates a **`chats`** row and the first **`messages`** row (user) in one transaction, then sends an SSE event **`chat_session`** with **`chatId`**. The client stores that id for later requests.
 3. **Later messages**: the client sends the same **`chatId`**. The server inserts the user row, appends to in-memory history for that thread, streams the assistant via OpenRouter, then inserts the assistant row and appends the assistant to memory.
 4. On the **first** user message of a thread, a background title is generated; the UI receives **`chat_title`** on SSE, and the server **`UPDATE`s `chats.title`** when persistence is active for that thread.
 
 ### Implementation
 
-- **Startup** (`cmd/token-soup/main.go`): if `DATABASE_URL` is non-empty, a `pgxpool.Pool` is created and wrapped in `chat.Persist`; otherwise `persist` is nil and a warning is logged.
-- **Handler** (`internal/chat/handler.go`): JWT subject → `user_id`; body decoded into `message`, `senderName`, `chatId`, `ephemeral`.
+- **Startup** (`cmd/token-soup/main.go`): `-mode local|supabase` selects auth; if `DATABASE_URL` is non-empty, a `pgxpool.Pool` is created and wrapped in `chat.Persist` (required in local mode); otherwise `persist` is nil and a warning is logged (supabase mode only).
+- **Handler** (`internal/chat/handler.go`): auth user id → `user_id`; body decoded into `message`, `senderName`, `chatId`, `ephemeral`.
 - **Persistence** (`internal/chat/persist.go`): SQL insert/update helpers; each uses **`withPersistRetry`** (`internal/chat/retrydb.go`).
 - **Memory** (`internal/chat/store.go`): `AppendUser` / `AppendUserChat` / `AppendBot` / `AppendBotChat` keyed by `userID` or `userID + chatId`.
 - **SSE** (`internal/openrouter/types.go`, handler): events include `chat_session` (`chatId`), `chat_title`, `persist_warning`, plus existing `ai_*` stream events.
