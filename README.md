@@ -24,7 +24,7 @@ I've long been curious about the idea of AI chatbots talking to each other. I th
 
 The frontend (`web`) is written in TypeScript and uses the SvelteKit framework. A Go backend (`api`) handles streamed LLM responses from OpenRouter, using server-sent events. Character descriptions (`roles`) and chats are stored in Postgres. By default, the stack runs fully locally, and the web app uses a fixed local user (no cloud auth).
 
-My original plan was to host the Go backend on Fly.io and the Svelte frontend on Cloudflare, but I shelved the project before that. There was a Postgres database on Supabase, now lapsed. The docs describe how this was set up [docs/persist-chat.md](docs/persist-chat.md). The Supabase path still exists in code, gated behind the `-supabase` flag, but would require a new instance of the Supabase project to be set up.
+My original plan was to host the Go backend on Fly.io and the Svelte frontend on Cloudflare, but I shelved the project before that. There was a Postgres database on Supabase, now lapsed. The docs describe how this was set up [docs/persist-chat.md](docs/persist-chat.md). The Supabase path still exists in code, gated behind the `supabase` flag, but would require a new instance of the Supabase project to be set up.
 
 ## Shelved, you say?
 
